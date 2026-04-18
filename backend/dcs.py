@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
@@ -51,6 +52,11 @@ DCS_EXEC_TIMEOUT_S = int(os.environ.get("DCS_EXEC_TIMEOUT_S", "120"))
 DCS_POLL_INTERVAL_S = float(os.environ.get("DCS_POLL_INTERVAL_S", "0.5"))
 
 _RUNNING_PHASES = {"running"}
+# Any phase where Dedalus is already reconciling toward `running` — we just
+# poll, never wake(). `accepted` is the initial state right after create().
+_STARTING_PHASES = {"accepted", "starting", "waking", "provisioning", "pending"}
+_FAILED_PHASES = {"failed"}
+_SLEEPING_PHASES = {"sleeping", "stopped"}
 _TERMINAL_EXEC_STATES = {"succeeded", "failed", "cancelled", "canceled"}
 
 
@@ -155,27 +161,72 @@ def get_or_create_machine_id() -> str:
     return machine.machine_id
 
 
+def _retrieve_with_etag(client, machine_id: str) -> Tuple[object, str]:
+    """
+    Fetch a machine and return (parsed_machine, etag). DCS wake/sleep/update
+    use optimistic concurrency via `If-Match: <ETag>`, so we need the header
+    from the raw response — the parsed model doesn't include it.
+
+    The DCS API returns weak ETags (`W/"1"`) but requires STRONG ETags in the
+    `If-Match` header (`"1"`), so we strip the `W/` prefix here.
+    """
+    resp = client.machines.with_raw_response.retrieve(machine_id=machine_id)
+    raw_etag = resp.headers.get("etag") or ""
+    etag = raw_etag[2:] if raw_etag.startswith("W/") else raw_etag
+    return resp.parse(), etag
+
+
 def ensure_machine_running(machine_id: Optional[str] = None) -> str:
     """
     Wake the machine (or leave it running) and block until `status.phase` is
     `running`. Returns the machine ID that's now live.
 
-    Raises `TimeoutError` if the wake doesn't land within `DCS_WAKE_TIMEOUT_S`.
+    If a prior wake/create left the machine in `failed + retryable`, kick it
+    again. Raises `TimeoutError` if the wake doesn't land within
+    `DCS_WAKE_TIMEOUT_S`, or `RuntimeError` if the phase is terminally failed.
     """
     mid = machine_id or get_or_create_machine_id()
     client = _get_client()
 
-    dm = client.machines.retrieve(machine_id=mid)
-    phase = getattr(getattr(dm, "status", None), "phase", None)
-    if phase not in _RUNNING_PHASES:
-        client.machines.wake(machine_id=mid)
-
     deadline = time.monotonic() + DCS_WAKE_TIMEOUT_S
+    last_kick_at = 0.0
+    # Don't retry-kick faster than this — the Dedalus controlplane needs time
+    # to reconcile, and pinging wake() every 0.5s is pointless.
+    _kick_cooldown = 5.0
+
     while time.monotonic() < deadline:
-        dm = client.machines.retrieve(machine_id=mid)
-        phase = getattr(getattr(dm, "status", None), "phase", None)
+        dm, etag = _retrieve_with_etag(client, mid)
+        status = getattr(dm, "status", None)
+        phase = getattr(status, "phase", None)
+
         if phase in _RUNNING_PHASES:
             return mid
+
+        if phase in _FAILED_PHASES:
+            retryable = bool(getattr(status, "retryable", False))
+            if not retryable:
+                last_error = getattr(status, "last_error", "unknown")
+                raise RuntimeError(
+                    f"machine {mid} is in terminal 'failed' state: {last_error}"
+                )
+            # Retryable failure — kick wake() again (rate-limited).
+            if time.monotonic() - last_kick_at >= _kick_cooldown and etag:
+                client.machines.wake(
+                    machine_id=mid,
+                    if_match=etag,
+                    idempotency_key=str(uuid.uuid4()),
+                )
+                last_kick_at = time.monotonic()
+        elif phase in _SLEEPING_PHASES and etag:
+            # Genuinely sleeping/stopped — request a wake.
+            client.machines.wake(
+                machine_id=mid,
+                if_match=etag,
+                idempotency_key=str(uuid.uuid4()),
+            )
+            last_kick_at = time.monotonic()
+        # Any other phase (STARTING/accepted/etc.) — just keep polling.
+
         time.sleep(DCS_POLL_INTERVAL_S)
 
     raise TimeoutError(
@@ -189,7 +240,21 @@ def sleep_machine(machine_id: Optional[str] = None) -> None:
     if not mid:
         return
     client = _get_client()
-    client.machines.sleep(machine_id=mid)
+    try:
+        _dm, etag = _retrieve_with_etag(client, mid)
+    except Exception:  # noqa: BLE001
+        return
+    if not etag:
+        return
+    try:
+        client.machines.sleep(
+            machine_id=mid,
+            if_match=etag,
+            idempotency_key=str(uuid.uuid4()),
+        )
+    except Exception:  # noqa: BLE001
+        # Non-critical — the machine will eventually idle-sleep on its own.
+        return
 
 
 # ---------------------------------------------------------------------------
