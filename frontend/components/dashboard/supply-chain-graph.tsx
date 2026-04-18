@@ -1,7 +1,16 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { Leaf, Puzzle, Factory, ZoomIn, ZoomOut, Maximize2, X } from "lucide-react"
+import {
+  Cancel01Icon,
+  Factory01Icon,
+  Leaf01Icon,
+  Maximize02Icon,
+  PuzzleIcon,
+  ZoomInAreaIcon,
+  ZoomOutAreaIcon,
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import rawData from "@/lib/sampledata.json"
 
 // ---------------------------------------------------------------------------
@@ -571,20 +580,20 @@ export function SupplyChainGraph() {
           onClick={() => handleZoom("in")}
           className="flex items-center justify-center w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-colors"
         >
-          <ZoomIn className="w-4 h-4" />
+          <HugeiconsIcon icon={ZoomInAreaIcon} className="w-4 h-4" strokeWidth={1.7} />
         </button>
         <button
           onClick={() => handleZoom("out")}
           className="flex items-center justify-center w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-colors"
         >
-          <ZoomOut className="w-4 h-4" />
+          <HugeiconsIcon icon={ZoomOutAreaIcon} className="w-4 h-4" strokeWidth={1.7} />
         </button>
         <div className="w-full h-px bg-white/[0.06] my-0.5" />
         <button
           onClick={handleFit}
           className="flex items-center justify-center w-8 h-8 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/[0.07] transition-colors"
         >
-          <Maximize2 className="w-4 h-4" />
+          <HugeiconsIcon icon={Maximize02Icon} className="w-4 h-4" strokeWidth={1.7} />
         </button>
       </div>
 
@@ -616,7 +625,7 @@ export function SupplyChainGraph() {
               onClick={() => setSelectedId(null)}
               className="flex-shrink-0 mt-0.5 flex items-center justify-center w-6 h-6 rounded-md text-white/25 hover:text-white/60 hover:bg-white/[0.06] transition-colors"
             >
-              <X className="w-3.5 h-3.5" />
+              <HugeiconsIcon icon={Cancel01Icon} className="w-3.5 h-3.5" strokeWidth={1.8} />
             </button>
           </div>
 
@@ -775,7 +784,7 @@ function NodeCard({ node, isSelected, isHovered }: { node: GraphNode; isSelected
           className="mb-1.5 p-2 rounded-full"
           style={{ background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.25)" }}
         >
-          <Leaf className="w-4 h-4 text-indigo-400" />
+          <HugeiconsIcon icon={Leaf01Icon} className="w-4 h-4 text-indigo-400" strokeWidth={1.8} />
         </div>
         <p className="text-[11px] font-semibold text-white/85 text-center leading-tight px-2">{d.label}</p>
         <p className="text-[9px] text-white/30 mt-0.5">{d.subtitle}</p>
@@ -805,7 +814,7 @@ function NodeCard({ node, isSelected, isHovered }: { node: GraphNode; isSelected
           className="flex-shrink-0 p-1.5 rounded-lg"
           style={{ background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.2)" }}
         >
-          <Puzzle className="w-4 h-4 text-blue-400" />
+          <HugeiconsIcon icon={PuzzleIcon} className="w-4 h-4 text-blue-400" strokeWidth={1.8} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold text-white/85 truncate">{d.label}</p>
@@ -870,7 +879,12 @@ function NodeCard({ node, isSelected, isHovered }: { node: GraphNode; isSelected
               className="w-7 h-7 rounded-lg flex items-center justify-center"
               style={{ background: eco.bg, border: `1px solid ${eco.ring}` }}
             >
-              <Factory className="w-3.5 h-3.5" style={{ color: eco.color }} />
+              <HugeiconsIcon
+                icon={Factory01Icon}
+                className="w-3.5 h-3.5"
+                strokeWidth={1.8}
+                style={{ color: eco.color }}
+              />
             </div>
           </div>
         </div>
