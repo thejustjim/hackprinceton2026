@@ -56,19 +56,19 @@ type DashboardLaunchState = {
 
 const HERO_SIGNALS = [
   {
-    label: "Start with demand",
+    label: "demand",
     value: "Product and destination",
     detail:
       "Define what you need to source, how much you need, and where it needs to arrive.",
   },
   {
-    label: "Compare options",
+    label: "Compare",
     value: "Country and transport",
     detail:
       "Test manufacturing countries side by side and see how shipping mode changes the result.",
   },
   {
-    label: "Make a decision",
+    label: "decide",
     value: "Ranking and recommendation",
     detail:
       "Review the tradeoffs quickly and export a short memo with the strongest option.",

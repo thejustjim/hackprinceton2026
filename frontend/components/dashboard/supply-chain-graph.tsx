@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   type SupplyScenario,
+  type SupplyScenarioGraphEdge,
   type SupplyScenarioGraphNode,
   type SupplyScenarioSelectableNodeId,
 } from "@/lib/supply-chain-scenario"
@@ -23,7 +24,8 @@ import { cn } from "@/lib/utils"
 // ---------------------------------------------------------------------------
 
 type GraphNodeState = SupplyScenarioGraphNode
-const NODE_SNAP_DURATION_MS = 1100
+const FORCE_SIMULATION_MAX_FRAMES = 540
+const FORCE_SIMULATION_SETTLE_FRAMES = 18
 const MOST_SUSTAINABLE_EDGE = {
   core: "#6EE7B7",
   coreStrong: "#ECFDF5",
@@ -36,6 +38,25 @@ const MOST_SUSTAINABLE_EDGE = {
 interface GraphViewportSize {
   height: number
   width: number
+}
+
+interface GraphVector {
+  x: number
+  y: number
+}
+
+interface ForceSimulationConfig {
+  anchorStrengthComponent: number
+  anchorStrengthManufacturer: number
+  collisionPadding: number
+  collisionStrength: number
+  damping: number
+  linkSpacing: number
+  longRangeRepulsion: number
+  maxSpeed: number
+  readableGap: number
+  settleThreshold: number
+  springStrength: number
 }
 
 // ---------------------------------------------------------------------------
@@ -111,10 +132,6 @@ function getNodeSize(node: GraphNodeState) {
   return { w: 168, h: 68 }
 }
 
-function easeOutCubic(value: number) {
-  return 1 - (1 - value) ** 3
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
@@ -143,19 +160,50 @@ function getNodeCenter(
   }
 }
 
-function getLayoutConfig(viewport: GraphViewportSize | null) {
+function getNodeRadius(node: GraphNodeState) {
+  const { w, h } = getNodeSize(node)
+  return Math.hypot(w / 2, h / 2)
+}
+
+function getGraphCrowdingScore(
+  nodes: GraphNodeState[],
+  viewport: GraphViewportSize | null
+) {
+  const width = viewport?.width ?? 1200
+  const height = viewport?.height ?? 900
+  const viewportArea = Math.max(width * height, 1)
+  const totalNodeArea = nodes.reduce((sum, node) => {
+    const { w, h } = getNodeSize(node)
+    return sum + w * h
+  }, 0)
+  const areaPressure = clamp(totalNodeArea / (viewportArea * 0.58), 0, 1.4)
+  const countPressure = clamp((nodes.length - 6) / 14, 0, 1.2)
+
+  return clamp(areaPressure * 0.62 + countPressure * 0.58, 0, 1.4)
+}
+
+function getLayoutConfig(
+  viewport: GraphViewportSize | null,
+  nodes: GraphNodeState[]
+) {
   const width = viewport?.width ?? 1200
   const height = viewport?.height ?? 900
   const compactness = clamp((960 - Math.min(width, height)) / 360, 0, 1)
+  const crowding = getGraphCrowdingScore(nodes, viewport)
 
   return {
-    componentPull: 0.56 - compactness * 0.09,
-    fitPaddingX: 112 - compactness * 34,
-    fitPaddingY: 96 - compactness * 28,
-    fitZoomBoost: 1.05 + compactness * 0.12,
-    manufacturerPull: 0.44 - compactness * 0.12,
-    paddingX: 26 - compactness * 8,
-    paddingY: 24 - compactness * 7,
+    componentPull: clamp(0.56 - compactness * 0.09 - crowding * 0.08, 0.28, 0.58),
+    fitPaddingX: 112 - compactness * 34 + crowding * 30,
+    fitPaddingY: 96 - compactness * 28 + crowding * 24,
+    fitZoomBoost: clamp(1.05 + compactness * 0.12 - crowding * 0.18, 0.78, 1.18),
+    manufacturerPull: clamp(
+      0.44 - compactness * 0.12 - crowding * 0.1,
+      0.18,
+      0.46
+    ),
+    minFitScale: clamp(0.52 - crowding * 0.16, 0.3, 0.52),
+    paddingX: 26 - compactness * 8 + crowding * 24,
+    paddingY: 24 - compactness * 7 + crowding * 20,
   }
 }
 
@@ -173,7 +221,7 @@ function buildCompactGraphNodes(
     return nodes
   }
 
-  const config = getLayoutConfig(viewport)
+  const config = getLayoutConfig(viewport, nodes)
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
   const anchorPositions = new Map<string, { x: number; y: number }>()
   const productAnchor = { ...productNode.position }
@@ -341,70 +389,6 @@ function relaxNodeLayout(
   }))
 }
 
-function resolveNodeSettleTarget(
-  nodeId: string,
-  nodes: GraphNodeState[],
-  anchors: Map<string, { x: number; y: number }>
-) {
-  const node = nodes.find((candidate) => candidate.id === nodeId)
-
-  if (!node) {
-    return null
-  }
-
-  const anchor = anchors.get(nodeId) ?? node.position
-  const target = { ...node.position }
-  const { w: nodeWidth, h: nodeHeight } = getNodeSize(node)
-
-  for (let iteration = 0; iteration < 18; iteration += 1) {
-    let shifted = false
-
-    for (const otherNode of nodes) {
-      if (otherNode.id === nodeId) {
-        continue
-      }
-
-      const otherCenter = getNodeCenter(otherNode)
-      const nodeCenter = getNodeCenter(node, target)
-      const { w: otherWidth, h: otherHeight } = getNodeSize(otherNode)
-      const deltaX = nodeCenter.x - otherCenter.x
-      const deltaY = nodeCenter.y - otherCenter.y
-      const overlapX = nodeWidth / 2 + otherWidth / 2 + 18 - Math.abs(deltaX)
-      const overlapY = nodeHeight / 2 + otherHeight / 2 + 14 - Math.abs(deltaY)
-
-      if (overlapX <= 0 || overlapY <= 0) {
-        continue
-      }
-
-      shifted = true
-
-      if (overlapX < overlapY) {
-        const direction =
-          deltaX === 0
-            ? anchor.x >= otherNode.position.x
-              ? 1
-              : -1
-            : Math.sign(deltaX)
-        target.x += direction * (overlapX + 0.5)
-      } else {
-        const direction =
-          deltaY === 0
-            ? anchor.y >= otherNode.position.y
-              ? 1
-              : -1
-            : Math.sign(deltaY)
-        target.y += direction * (overlapY + 0.5)
-      }
-    }
-
-    if (!shifted) {
-      break
-    }
-  }
-
-  return target
-}
-
 function getGraphBounds(nodes: GraphNodeState[]) {
   if (nodes.length === 0) {
     return {
@@ -456,7 +440,7 @@ function getFitTransform(
     return null
   }
 
-  const config = getLayoutConfig(viewport)
+  const config = getLayoutConfig(viewport, nodes)
   const bounds = getGraphBounds(nodes)
   const availableWidth = Math.max(1, width - config.fitPaddingX * 2)
   const availableHeight = Math.max(1, height - config.fitPaddingY * 2)
@@ -464,12 +448,293 @@ function getFitTransform(
     availableWidth / bounds.width,
     availableHeight / bounds.height
   )
-  const scale = clamp(fittedScale * config.fitZoomBoost, 0.52, 1.28)
+  const scale = clamp(fittedScale * config.fitZoomBoost, config.minFitScale, 1.28)
 
   return {
     scale,
     x: width / 2 - bounds.centerX * scale,
     y: height / 2 - bounds.centerY * scale,
+  }
+}
+
+function createVelocityMap(nodes: GraphNodeState[]) {
+  return new Map(nodes.map((node) => [node.id, { x: 0, y: 0 }]))
+}
+
+function getInteractiveMobility(
+  node: GraphNodeState,
+  draggedNodeId: string | null
+) {
+  if (node.id === draggedNodeId) {
+    return 0
+  }
+
+  return getNodeMobility(node)
+}
+
+function getForceSimulationConfig(
+  nodes: GraphNodeState[],
+  edges: SupplyScenarioGraphEdge[],
+  viewport: GraphViewportSize | null
+): ForceSimulationConfig {
+  const crowding = getGraphCrowdingScore(nodes, viewport)
+  const edgePressure = clamp(
+    (edges.length - Math.max(0, nodes.length - 1)) / Math.max(nodes.length, 1),
+    0,
+    1.2
+  )
+  const density = clamp(crowding + edgePressure * 0.32, 0, 1.7)
+
+  return {
+    anchorStrengthComponent: clamp(0.016 - density * 0.003, 0.008, 0.016),
+    anchorStrengthManufacturer: clamp(0.011 - density * 0.003, 0.005, 0.011),
+    collisionPadding: 20 + density * 18,
+    collisionStrength: 0.024 + density * 0.01,
+    damping: clamp(0.82 - density * 0.03, 0.74, 0.82),
+    linkSpacing: 30 + density * 24,
+    longRangeRepulsion: 0.0028 + density * 0.0014,
+    maxSpeed: 26 + density * 12,
+    readableGap: 34 + density * 44,
+    settleThreshold: 0.18 + density * 0.06,
+    springStrength: clamp(0.0052 - density * 0.0007, 0.0036, 0.0052),
+  }
+}
+
+function applyDistributedForce(
+  forces: Map<string, GraphVector>,
+  nodeId: string,
+  otherNodeId: string,
+  forceX: number,
+  forceY: number,
+  nodeMobility: number,
+  otherMobility: number
+) {
+  const totalMobility = nodeMobility + otherMobility
+
+  if (totalMobility <= 0) {
+    return
+  }
+
+  if (nodeMobility > 0) {
+    const nodeForce = forces.get(nodeId)
+
+    if (nodeForce) {
+      nodeForce.x += forceX * (nodeMobility / totalMobility)
+      nodeForce.y += forceY * (nodeMobility / totalMobility)
+    }
+  }
+
+  if (otherMobility > 0) {
+    const otherForce = forces.get(otherNodeId)
+
+    if (otherForce) {
+      otherForce.x -= forceX * (otherMobility / totalMobility)
+      otherForce.y -= forceY * (otherMobility / totalMobility)
+    }
+  }
+}
+
+function getDesiredEdgeDistance(
+  sourceNode: GraphNodeState,
+  targetNode: GraphNodeState,
+  config: ForceSimulationConfig
+) {
+  const base =
+    getNodeRadius(sourceNode) +
+    getNodeRadius(targetNode) +
+    config.collisionPadding +
+    config.linkSpacing
+
+  if (sourceNode.data.kind === "product" || targetNode.data.kind === "product") {
+    return base + 40
+  }
+
+  if (
+    sourceNode.data.kind === "component" ||
+    targetNode.data.kind === "component"
+  ) {
+    return base + 12
+  }
+
+  return base
+}
+
+function runForceSimulationStep({
+  anchors,
+  draggedNodeId,
+  dtScale,
+  edges,
+  nodes,
+  velocities,
+  viewport,
+}: {
+  anchors: Map<string, { x: number; y: number }>
+  draggedNodeId: string | null
+  dtScale: number
+  edges: SupplyScenarioGraphEdge[]
+  nodes: GraphNodeState[]
+  velocities: Map<string, GraphVector>
+  viewport: GraphViewportSize | null
+}) {
+  const config = getForceSimulationConfig(nodes, edges, viewport)
+  const forces = new Map(nodes.map((node) => [node.id, { x: 0, y: 0 }]))
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
+      const node = nodes[index]
+      const otherNode = nodes[otherIndex]
+      const nodeCenter = getNodeCenter(node)
+      const otherCenter = getNodeCenter(otherNode)
+      let deltaX = nodeCenter.x - otherCenter.x
+      let deltaY = nodeCenter.y - otherCenter.y
+
+      if (deltaX === 0 && deltaY === 0) {
+        deltaX = (otherIndex - index || 1) * 0.01
+        deltaY = 0.01
+      }
+
+      const distance = Math.hypot(deltaX, deltaY) || 0.0001
+      const nodeMobility = getInteractiveMobility(node, draggedNodeId)
+      const otherMobility = getInteractiveMobility(otherNode, draggedNodeId)
+      const preferredDistance =
+        getNodeRadius(node) +
+        getNodeRadius(otherNode) +
+        config.collisionPadding
+      const readableDistance = preferredDistance + config.readableGap
+
+      if (distance >= readableDistance) {
+        continue
+      }
+
+      const normalX = deltaX / distance
+      const normalY = deltaY / distance
+      const push =
+        distance < preferredDistance
+          ? (preferredDistance - distance) * config.collisionStrength
+          : ((readableDistance - distance) / readableDistance) ** 2 *
+            config.longRangeRepulsion *
+            readableDistance
+
+      applyDistributedForce(
+        forces,
+        node.id,
+        otherNode.id,
+        normalX * push,
+        normalY * push,
+        nodeMobility,
+        otherMobility
+      )
+    }
+  }
+
+  for (const edge of edges) {
+    const sourceNode = nodeById.get(edge.sourceId)
+    const targetNode = nodeById.get(edge.targetId)
+
+    if (!sourceNode || !targetNode) {
+      continue
+    }
+
+    const sourceCenter = getNodeCenter(sourceNode)
+    const targetCenter = getNodeCenter(targetNode)
+    const deltaX = targetCenter.x - sourceCenter.x
+    const deltaY = targetCenter.y - sourceCenter.y
+    const distance = Math.hypot(deltaX, deltaY) || 0.0001
+    const nodeMobility = getInteractiveMobility(sourceNode, draggedNodeId)
+    const otherMobility = getInteractiveMobility(targetNode, draggedNodeId)
+    const desiredDistance = getDesiredEdgeDistance(
+      sourceNode,
+      targetNode,
+      config
+    )
+    const stretch = distance - desiredDistance
+
+    if (Math.abs(stretch) < 1) {
+      continue
+    }
+
+    const normalX = deltaX / distance
+    const normalY = deltaY / distance
+    const pull = stretch * config.springStrength
+
+    applyDistributedForce(
+      forces,
+      sourceNode.id,
+      targetNode.id,
+      normalX * pull,
+      normalY * pull,
+      nodeMobility,
+      otherMobility
+    )
+  }
+
+  nodes.forEach((node) => {
+    const mobility = getInteractiveMobility(node, draggedNodeId)
+    const anchor = anchors.get(node.id)
+    const force = forces.get(node.id)
+
+    if (!anchor || !force || mobility <= 0) {
+      return
+    }
+
+    const strength =
+      node.data.kind === "component"
+        ? config.anchorStrengthComponent
+        : config.anchorStrengthManufacturer
+
+    force.x += (anchor.x - node.position.x) * strength
+    force.y += (anchor.y - node.position.y) * strength
+  })
+
+  let movingNodeCount = 0
+  let totalSpeed = 0
+
+  const nextNodes = nodes.map((node) => {
+    const anchor = anchors.get(node.id) ?? node.position
+    const mobility = getInteractiveMobility(node, draggedNodeId)
+
+    if (node.data.kind === "product") {
+      velocities.set(node.id, { x: 0, y: 0 })
+      return { ...node, position: { ...anchor } }
+    }
+
+    if (mobility <= 0) {
+      velocities.set(node.id, { x: 0, y: 0 })
+      return node
+    }
+
+    const velocity = velocities.get(node.id) ?? { x: 0, y: 0 }
+    const force = forces.get(node.id) ?? { x: 0, y: 0 }
+    const nextVelocity = {
+      x: (velocity.x + force.x * dtScale) * config.damping,
+      y: (velocity.y + force.y * dtScale) * config.damping,
+    }
+    const speed = Math.hypot(nextVelocity.x, nextVelocity.y)
+
+    if (speed > config.maxSpeed) {
+      const speedScale = config.maxSpeed / speed
+      nextVelocity.x *= speedScale
+      nextVelocity.y *= speedScale
+    }
+
+    velocities.set(node.id, nextVelocity)
+    totalSpeed += Math.hypot(nextVelocity.x, nextVelocity.y)
+    movingNodeCount += 1
+
+    return {
+      ...node,
+      position: {
+        x: node.position.x + nextVelocity.x * dtScale,
+        y: node.position.y + nextVelocity.y * dtScale,
+      },
+    }
+  })
+
+  return {
+    meanSpeed: totalSpeed / Math.max(movingNodeCount, 1),
+    nodes: nextNodes,
+    settleThreshold: config.settleThreshold,
   }
 }
 
@@ -705,6 +970,16 @@ interface SupplyChainGraphProps {
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
 
+type GraphDragState = {
+  type: "canvas" | "node"
+  id?: string
+  sx: number
+  sy: number
+  ix: number
+  iy: number
+  moved: boolean
+} | null
+
 export function SupplyChainGraph({
   bestEcoManufacturerByComponent,
   hoveredNodeId,
@@ -715,9 +990,16 @@ export function SupplyChainGraph({
 }: SupplyChainGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
-  const snapFrameRef = useRef<number | null>(null)
-  const snapNodeIdRef = useRef<string | null>(null)
+  const simulationFrameRef = useRef<number | null>(null)
+  const simulationFrameCountRef = useRef(0)
+  const simulationStableFramesRef = useRef(0)
+  const simulationTimestampRef = useRef<number | null>(null)
   const layoutAnchorsRef = useRef(new Map<string, { x: number; y: number }>())
+  const nodesRef = useRef<GraphNodeState[]>([])
+  const edgesRef = useRef<SupplyScenarioGraphEdge[]>(scenario.graph.edges)
+  const viewportRef = useRef<GraphViewportSize | null>(null)
+  const velocitiesRef = useRef(new Map<string, GraphVector>())
+  const autoFitAfterSimulationRef = useRef(true)
   const velRef = useRef({ x: 0, y: 0, ts: 0, lx: 0, ly: 0 })
   const [viewportSize, setViewportSize] = useState<GraphViewportSize | null>(
     null
@@ -729,16 +1011,26 @@ export function SupplyChainGraph({
   const [nodes, setNodes] = useState<GraphNodeState[]>(layoutNodes)
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
-  const [dragState, setDragState] = useState<{
-    type: "canvas" | "node"
-    id?: string
-    sx: number
-    sy: number
-    ix: number
-    iy: number
-    moved: boolean
-  } | null>(null)
+  const [dragState, setDragState] = useState<GraphDragState>(null)
   const [panelVisible, setPanelVisible] = useState(false)
+  const [simulationActive, setSimulationActive] = useState(false)
+  const dragStateRef = useRef<GraphDragState>(dragState)
+
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+
+  useEffect(() => {
+    dragStateRef.current = dragState
+  }, [dragState])
+
+  useEffect(() => {
+    edgesRef.current = scenario.graph.edges
+  }, [scenario.graph.edges])
+
+  useEffect(() => {
+    viewportRef.current = viewportSize
+  }, [viewportSize])
 
   // Measure graph viewport for responsive layout + fit
   useEffect(() => {
@@ -764,18 +1056,6 @@ export function SupplyChainGraph({
 
     return () => observer.disconnect()
   }, [])
-
-  useEffect(() => {
-    layoutAnchorsRef.current = new Map(
-      layoutNodes.map((node) => [node.id, { ...node.position }])
-    )
-
-    const frameId = window.requestAnimationFrame(() => {
-      setNodes(layoutNodes)
-    })
-
-    return () => window.cancelAnimationFrame(frameId)
-  }, [layoutNodes])
 
   useEffect(() => {
     const fittedTransform = getFitTransform(layoutNodes, viewportSize)
@@ -815,70 +1095,123 @@ export function SupplyChainGraph({
     }
   }, [])
 
-  const stopSnapAnimation = useCallback((nodeId?: string) => {
-    if (
-      snapFrameRef.current !== null &&
-      (!nodeId || !snapNodeIdRef.current || snapNodeIdRef.current === nodeId)
-    ) {
-      cancelAnimationFrame(snapFrameRef.current)
-      snapFrameRef.current = null
-      snapNodeIdRef.current = null
+  const stopSimulation = useCallback(() => {
+    if (simulationFrameRef.current !== null) {
+      cancelAnimationFrame(simulationFrameRef.current)
+      simulationFrameRef.current = null
     }
+
+    simulationFrameCountRef.current = 0
+    simulationStableFramesRef.current = 0
+    simulationTimestampRef.current = null
+    setSimulationActive(false)
   }, [])
 
-  const animateNodeToTarget = useCallback(
-    (
-      nodeId: string,
-      from: { x: number; y: number },
-      target: { x: number; y: number }
-    ) => {
-      if (Math.hypot(target.x - from.x, target.y - from.y) < 0.75) {
+  const kickSimulation = useCallback(
+    ({ allowAutoFit = false }: { allowAutoFit?: boolean } = {}) => {
+      autoFitAfterSimulationRef.current =
+        autoFitAfterSimulationRef.current || allowAutoFit
+      simulationStableFramesRef.current = 0
+
+      if (simulationFrameRef.current !== null) {
         return
       }
 
-      stopSnapAnimation()
-
-      const startTime = performance.now()
+      setSimulationActive(true)
 
       const tick = (timestamp: number) => {
-        const progress = Math.min(
-          1,
-          (timestamp - startTime) / NODE_SNAP_DURATION_MS
+        const draggedNodeId =
+          dragStateRef.current?.type === "node" ? dragStateRef.current.id ?? null : null
+        const dtScale = clamp(
+          ((simulationTimestampRef.current
+            ? timestamp - simulationTimestampRef.current
+            : 16.667) /
+            16.667),
+          0.7,
+          1.35
         )
-        const eased = easeOutCubic(progress)
+        simulationTimestampRef.current = timestamp
 
-        setNodes((previousNodes) =>
-          previousNodes.map((node) =>
-            node.id === nodeId
-              ? {
-                  ...node,
-                  position: {
-                    x: from.x + (target.x - from.x) * eased,
-                    y: from.y + (target.y - from.y) * eased,
-                  },
-                }
-              : node
-          )
-        )
+        const { meanSpeed, nodes: nextNodes, settleThreshold } =
+          runForceSimulationStep({
+            anchors: layoutAnchorsRef.current,
+            draggedNodeId,
+            dtScale,
+            edges: edgesRef.current,
+            nodes: nodesRef.current,
+            velocities: velocitiesRef.current,
+            viewport: viewportRef.current,
+          })
 
-        if (progress < 1) {
-          snapFrameRef.current = requestAnimationFrame(tick)
+        nodesRef.current = nextNodes
+        setNodes(nextNodes)
+        simulationFrameCountRef.current += 1
+
+        if (!draggedNodeId && meanSpeed < settleThreshold) {
+          simulationStableFramesRef.current += 1
         } else {
-          snapFrameRef.current = null
-          snapNodeIdRef.current = null
+          simulationStableFramesRef.current = 0
+        }
+
+        const frameBudgetReached =
+          simulationFrameCountRef.current >= FORCE_SIMULATION_MAX_FRAMES &&
+          !draggedNodeId
+        const settled =
+          simulationStableFramesRef.current >= FORCE_SIMULATION_SETTLE_FRAMES &&
+          !draggedNodeId
+
+        if (!frameBudgetReached && !settled) {
+          simulationFrameRef.current = requestAnimationFrame(tick)
+          return
+        }
+
+        simulationFrameRef.current = null
+        simulationFrameCountRef.current = 0
+        simulationStableFramesRef.current = 0
+        simulationTimestampRef.current = null
+        setSimulationActive(false)
+
+        if (autoFitAfterSimulationRef.current) {
+          autoFitAfterSimulationRef.current = false
+          const fittedTransform = getFitTransform(
+            nodesRef.current,
+            viewportRef.current
+          )
+
+          if (fittedTransform) {
+            setTransform(fittedTransform)
+          }
         }
       }
 
-      snapNodeIdRef.current = nodeId
-      snapFrameRef.current = requestAnimationFrame(tick)
+      simulationFrameRef.current = requestAnimationFrame(tick)
     },
-    [stopSnapAnimation]
+    []
   )
+
+  useEffect(() => {
+    layoutAnchorsRef.current = new Map(
+      layoutNodes.map((node) => [node.id, { ...node.position }])
+    )
+    simulationFrameCountRef.current = 0
+    simulationStableFramesRef.current = 0
+    simulationTimestampRef.current = null
+    velocitiesRef.current = createVelocityMap(layoutNodes)
+    nodesRef.current = layoutNodes
+    autoFitAfterSimulationRef.current = true
+    const frameId = window.requestAnimationFrame(() => {
+      setNodes(layoutNodes)
+      kickSimulation({ allowAutoFit: true })
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [kickSimulation, layoutNodes])
 
   // --- Wheel zoom/pan ---
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       stopInertia()
+      autoFitAfterSimulationRef.current = false
       setTransform((prev) => {
         if (e.ctrlKey || e.metaKey) {
           const newScale = Math.min(
@@ -900,6 +1233,7 @@ export function SupplyChainGraph({
   )
 
   const handleZoom = useCallback((dir: "in" | "out") => {
+    autoFitAfterSimulationRef.current = false
     setTransform((prev) => {
       const newScale = Math.max(
         0.15,
@@ -914,6 +1248,7 @@ export function SupplyChainGraph({
   }, [])
 
   const handleFit = useCallback(() => {
+    autoFitAfterSimulationRef.current = false
     const fittedTransform = getFitTransform(nodes, viewportSize)
 
     if (fittedTransform) {
@@ -930,8 +1265,8 @@ export function SupplyChainGraph({
 
     if (nodeEl) {
       const nodeId = nodeEl.dataset.nodeId!
-      stopSnapAnimation(nodeId)
-      const node = nodes.find((n) => n.id === nodeId)!
+      const node = nodesRef.current.find((n) => n.id === nodeId)!
+      autoFitAfterSimulationRef.current = false
       setDragState({
         type: "node",
         id: nodeId,
@@ -941,6 +1276,7 @@ export function SupplyChainGraph({
         iy: node.position.y,
         moved: false,
       })
+      kickSimulation()
       e.stopPropagation()
       return
     }
@@ -968,8 +1304,10 @@ export function SupplyChainGraph({
     const dy = e.clientY - dragState.sy
 
     if (dragState.type === "canvas") {
-      if (!dragState.moved && Math.hypot(dx, dy) > 4)
+      if (!dragState.moved && Math.hypot(dx, dy) > 4) {
+        autoFitAfterSimulationRef.current = false
         setDragState((p) => p && { ...p, moved: true })
+      }
       const now = performance.now()
       const dt = now - velRef.current.ts
       if (dt > 0) {
@@ -985,20 +1323,22 @@ export function SupplyChainGraph({
         y: dragState.iy + dy,
       }))
     } else if (dragState.type === "node") {
-      if (!dragState.moved && Math.hypot(dx, dy) > 4)
+      if (!dragState.moved && Math.hypot(dx, dy) > 4) {
         setDragState((p) => p && { ...p, moved: true })
+      }
       const wdx = dx / transform.scale
       const wdy = dy / transform.scale
-      setNodes((prev) =>
-        prev.map((n) =>
-          n.id === dragState.id
-            ? {
-                ...n,
-                position: { x: dragState.ix + wdx, y: dragState.iy + wdy },
-              }
-            : n
-        )
+      const nextNodes = nodesRef.current.map((node) =>
+        node.id === dragState.id
+          ? {
+              ...node,
+              position: { x: dragState.ix + wdx, y: dragState.iy + wdy },
+            }
+          : node
       )
+      nodesRef.current = nextNodes
+      setNodes(nextNodes)
+      kickSimulation()
     }
   }
 
@@ -1022,24 +1362,8 @@ export function SupplyChainGraph({
     } else if (dragState?.type === "node") {
       if (!dragState.moved) {
         onSelectNode(dragState.id ?? null)
-      } else if (dragState.id) {
-        const draggedNode = nodes.find((node) => node.id === dragState.id)
-
-        if (draggedNode) {
-          const settledTarget = resolveNodeSettleTarget(
-            dragState.id,
-            nodes,
-            layoutAnchorsRef.current
-          )
-
-          if (settledTarget) {
-            animateNodeToTarget(
-              dragState.id,
-              draggedNode.position,
-              settledTarget
-            )
-          }
-        }
+      } else {
+        kickSimulation()
       }
     }
     setDragState(null)
@@ -1047,9 +1371,9 @@ export function SupplyChainGraph({
 
   useEffect(
     () => () => {
-      stopSnapAnimation()
+      stopSimulation()
     },
-    [stopSnapAnimation]
+    [stopSimulation]
   )
 
   // Keyboard: Escape deselects
@@ -1416,6 +1740,7 @@ export function SupplyChainGraph({
                 onPointerLeave={() => onHoverNode(null)}
               >
                 <NodeCard
+                  allowIdleFloat={!simulationActive}
                   isDragging={isDragging}
                   node={node}
                   isSelected={isSelected}
@@ -1756,12 +2081,14 @@ export function SupplyChainGraph({
 // ---------------------------------------------------------------------------
 
 function NodeCard({
+  allowIdleFloat,
   isDragging,
   node,
   isSelected,
   isHovered,
   motionIndex,
 }: {
+  allowIdleFloat: boolean
   isDragging: boolean
   node: GraphNodeState
   isSelected: boolean
@@ -1775,7 +2102,7 @@ function NodeCard({
       <div
         className={cn(
           "relative flex h-full w-full flex-col items-center overflow-hidden rounded-[20px] px-3 pt-3.5 pb-4",
-          isDragging ? "" : "node-idle-float"
+          !isDragging && allowIdleFloat ? "node-idle-float" : ""
         )}
         style={{
           animationDelay: `${motionIndex * 0.4}s`,
@@ -1852,7 +2179,7 @@ function NodeCard({
       <div
         className={cn(
           "relative flex h-full w-full items-center gap-2.5 overflow-hidden rounded-xl px-3",
-          isDragging ? "" : "node-idle-float"
+          !isDragging && allowIdleFloat ? "node-idle-float" : ""
         )}
         style={{
           animationDelay: `${motionIndex * 0.4}s`,
@@ -1943,7 +2270,7 @@ function NodeCard({
       <div
         className={cn(
           "relative flex h-full w-full flex-col justify-between overflow-hidden rounded-xl p-3",
-          isDragging ? "" : "node-idle-float"
+          !isDragging && allowIdleFloat ? "node-idle-float" : ""
         )}
         style={{
           animationDelay: `${motionIndex * 0.4}s`,
