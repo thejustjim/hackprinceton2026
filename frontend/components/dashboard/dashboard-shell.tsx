@@ -1,25 +1,81 @@
 "use client"
 
-import { startTransition, useDeferredValue, useState } from "react"
+import { startTransition, useEffect, useMemo, useState } from "react"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
-import { type SupplyChainSnapshot } from "@/lib/mock-supply-chain"
+import {
+  type SupplyScenario,
+  type SupplyScenarioSelectableNodeId,
+} from "@/lib/supply-chain-scenario"
 
 interface DashboardShellProps {
-  data: SupplyChainSnapshot
+  scenario: SupplyScenario
 }
 
-export function DashboardShell({ data }: DashboardShellProps) {
-  const [selectedEntityId, setSelectedEntityId] = useState(
-    data.entities[2]?.id ?? data.entities[0]?.id
-  )
-  const deferredEntityId = useDeferredValue(selectedEntityId)
+function createPinnedManufacturerByComponent(scenario: SupplyScenario) {
+  return Object.fromEntries(
+    scenario.components
+      .map((component) => {
+        const manufacturers = scenario.manufacturers.filter(
+          (manufacturer) => manufacturer.componentId === component.id
+        )
+        const pinnedManufacturer =
+          manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
+          manufacturers[0]
 
-  function handleSelectEntity(entityId: string) {
+        return pinnedManufacturer
+          ? ([component.id, pinnedManufacturer.id] as const)
+          : null
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry))
+  )
+}
+
+export function DashboardShell({ scenario }: DashboardShellProps) {
+  const [selectedNodeId, setSelectedNodeId] =
+    useState<SupplyScenarioSelectableNodeId | null>(null)
+  const [hoveredNodeId, setHoveredNodeId] =
+    useState<SupplyScenarioSelectableNodeId | null>(null)
+  const [pinnedManufacturerByComponent, setPinnedManufacturerByComponent] =
+    useState(() => createPinnedManufacturerByComponent(scenario))
+  const manufacturerComponentById = useMemo(
+    () =>
+      new Map(
+        scenario.manufacturers.map(
+          (manufacturer) => [manufacturer.id, manufacturer.componentId] as const
+        )
+      ),
+    [scenario.manufacturers]
+  )
+
+  useEffect(() => {
+    setPinnedManufacturerByComponent(
+      createPinnedManufacturerByComponent(scenario)
+    )
+  }, [scenario])
+
+  function handleSelectNode(nodeId: SupplyScenarioSelectableNodeId | null) {
+    const componentId = nodeId ? manufacturerComponentById.get(nodeId) : null
+
+    if (componentId && nodeId) {
+      setPinnedManufacturerByComponent((previousState) =>
+        previousState[componentId] === nodeId
+          ? previousState
+          : {
+              ...previousState,
+              [componentId]: nodeId,
+            }
+      )
+    }
+
     startTransition(() => {
-      setSelectedEntityId(entityId)
+      setSelectedNodeId(nodeId)
     })
+  }
+
+  function handleHoverNode(nodeId: SupplyScenarioSelectableNodeId | null) {
+    setHoveredNodeId(nodeId)
   }
 
   return (
@@ -34,16 +90,28 @@ export function DashboardShell({ data }: DashboardShellProps) {
               Interactive supply chain graph · geographic intelligence
             </p>
           </div>
-          <div className="text-sm text-muted-foreground">{data.updatedAt}</div>
+          <div className="text-sm text-muted-foreground">
+            {scenario.updatedAt}
+          </div>
         </header>
 
-        <section className="grid flex-1 gap-4 lg:grid-cols-[1.45fr_minmax(360px,0.9fr)]">
-          <GraphView className="min-h-[32rem] lg:min-h-0" />
-          <GlobeView
-            data={data}
+        <section className="grid flex-1 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)]">
+          <GraphView
             className="min-h-[32rem] lg:min-h-0"
-            selectedEntityId={deferredEntityId}
-            onSelectEntity={handleSelectEntity}
+            hoveredNodeId={hoveredNodeId}
+            onHoverNode={handleHoverNode}
+            onSelectNode={handleSelectNode}
+            scenario={scenario}
+            selectedNodeId={selectedNodeId}
+          />
+          <GlobeView
+            className="min-h-[32rem] lg:min-h-0"
+            hoveredNodeId={hoveredNodeId}
+            onHoverNode={handleHoverNode}
+            onSelectNode={handleSelectNode}
+            pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+            scenario={scenario}
+            selectedNodeId={selectedNodeId}
           />
         </section>
       </div>

@@ -7,11 +7,11 @@ import {
 export interface GlobeGeometryData {
   countryBoundaries: GlobeGeoPoint[][]
   landOutlines: GlobeGeoPoint[][]
-  source: "fallback" | "natural-earth-110m"
+  source: "fallback" | "natural-earth-admin-0-50m"
 }
 
-export const NATURAL_EARTH_TOPOLOGY_URL =
-  "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
+export const NATURAL_EARTH_ADMIN_0_TOPOLOGY_URL =
+  "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json"
 
 export const DEFAULT_GLOBE_GEOMETRY: GlobeGeometryData = {
   countryBoundaries: COUNTRY_BOUNDARIES,
@@ -52,6 +52,48 @@ interface Topology {
   }
   transform: TopologyTransform
   type: "Topology"
+}
+
+function pointsMatch(left: GlobeGeoPoint, right: GlobeGeoPoint) {
+  return (
+    Math.abs(left.lat - right.lat) < 0.001 &&
+    Math.abs(left.lon - right.lon) < 0.001
+  )
+}
+
+function pointDistance(left: GlobeGeoPoint, right: GlobeGeoPoint) {
+  return Math.hypot(left.lat - right.lat, left.lon - right.lon)
+}
+
+function simplifyOutline(points: GlobeGeoPoint[], minDistance: number) {
+  if (points.length < 3) {
+    return points
+  }
+
+  const simplified = [points[0]]
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index]
+    const previous = simplified[simplified.length - 1]
+
+    if (pointDistance(previous, point) >= minDistance) {
+      simplified.push(point)
+    }
+  }
+
+  const lastPoint = points[points.length - 1]
+
+  if (!pointsMatch(simplified[simplified.length - 1], lastPoint)) {
+    simplified.push(lastPoint)
+  }
+
+  return simplified
+}
+
+function normalizeOutlineSet(outlines: GlobeGeoPoint[][], minDistance: number) {
+  return outlines
+    .map((outline) => simplifyOutline(outline, minDistance))
+    .filter((outline) => outline.length > 1)
 }
 
 function getArcIndex(reference: number) {
@@ -195,9 +237,9 @@ export function buildNaturalEarthGlobeGeometry(
   }
 
   return {
-    countryBoundaries,
-    landOutlines,
-    source: "natural-earth-110m",
+    countryBoundaries: normalizeOutlineSet(countryBoundaries, 1.15),
+    landOutlines: normalizeOutlineSet(landOutlines, 0.45),
+    source: "natural-earth-admin-0-50m",
   }
 }
 

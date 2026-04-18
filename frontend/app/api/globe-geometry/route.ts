@@ -3,14 +3,14 @@ import { NextResponse } from "next/server"
 import {
   buildNaturalEarthGlobeGeometry,
   DEFAULT_GLOBE_GEOMETRY,
-  NATURAL_EARTH_TOPOLOGY_URL,
+  NATURAL_EARTH_ADMIN_0_TOPOLOGY_URL,
 } from "@/lib/natural-earth-globe"
 
 export const revalidate = 86400
 
 export async function GET() {
   try {
-    const response = await fetch(NATURAL_EARTH_TOPOLOGY_URL, {
+    const response = await fetch(NATURAL_EARTH_ADMIN_0_TOPOLOGY_URL, {
       next: {
         revalidate,
       },

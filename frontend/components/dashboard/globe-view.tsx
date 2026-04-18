@@ -7,135 +7,403 @@ import {
   Route03Icon,
 } from "@hugeicons/core-free-icons"
 
-import { Button } from "@/components/ui/button"
 import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
-import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import {
-  type SupplyChainEntity,
-  type SupplyChainSnapshot,
-} from "@/lib/mock-supply-chain"
+  type SupplyScenario,
+  type SupplyScenarioComponentNode,
+  type SupplyScenarioManufacturerNode,
+  type SupplyScenarioSelectableNodeId,
+} from "@/lib/supply-chain-scenario"
+import { cn } from "@/lib/utils"
 
 interface GlobeViewProps {
-  data: SupplyChainSnapshot
   className?: string
-  selectedEntityId?: string
-  onSelectEntity?: (entityId: string) => void
+  hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  pinnedManufacturerByComponent: Record<string, string>
+  scenario: SupplyScenario
+  selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
 
-function getSelectedEntity(
-  selectedEntityId: string | undefined,
-  entities: SupplyChainEntity[]
+const CORNER_STAR_DOTS = [
+  { left: "6%", opacity: 0.5, size: 1.4, top: "10%" },
+  { left: "11%", opacity: 0.76, size: 2.1, top: "15%" },
+  { left: "17%", opacity: 0.44, size: 1.2, top: "8%" },
+  { left: "82%", opacity: 0.42, size: 1.2, top: "9%" },
+  { left: "88%", opacity: 0.74, size: 2, top: "14%" },
+  { left: "93%", opacity: 0.52, size: 1.4, top: "11%" },
+  { left: "8%", opacity: 0.4, size: 1.1, top: "84%" },
+  { left: "14%", opacity: 0.68, size: 1.8, top: "89%" },
+  { left: "19%", opacity: 0.34, size: 1, top: "80%" },
+  { left: "80%", opacity: 0.3, size: 1, top: "86%" },
+  { left: "87%", opacity: 0.64, size: 1.8, top: "91%" },
+  { left: "92%", opacity: 0.46, size: 1.2, top: "83%" },
+] as const
+
+function getManufacturerForComponent(
+  scenario: SupplyScenario,
+  component: SupplyScenarioComponentNode
 ) {
+  return component.manufacturerIds
+    .map((manufacturerId) =>
+      scenario.manufacturers.find(
+        (manufacturer) => manufacturer.id === manufacturerId
+      )
+    )
+    .filter((manufacturer): manufacturer is SupplyScenarioManufacturerNode =>
+      Boolean(manufacturer)
+    )
+}
+
+function getLinkedComponentId(
+  scenario: SupplyScenario,
+  nodeId: SupplyScenarioSelectableNodeId | null
+) {
+  if (!nodeId) {
+    return null
+  }
+
+  const component = scenario.components.find((item) => item.id === nodeId)
+
+  if (component) {
+    return component.id
+  }
+
+  const manufacturer = scenario.manufacturers.find((item) => item.id === nodeId)
+
+  return manufacturer?.componentId ?? null
+}
+
+function getManufacturerStatusStyles(isCurrent: boolean) {
+  return isCurrent
+    ? {
+        badgeClassName:
+          "border border-amber-300/24 bg-amber-300/10 text-amber-200",
+        dotClassName: "bg-amber-300",
+        dotShadow: "0 0 10px rgba(252,211,77,0.34)",
+      }
+    : {
+        badgeClassName:
+          "border border-emerald-400/22 bg-emerald-400/10 text-emerald-300",
+        dotClassName: "bg-emerald-400",
+        dotShadow: "0 0 10px rgba(52,211,153,0.26)",
+      }
+}
+
+function ManufacturerRow({
+  isFocused,
+  isPinned,
+  manufacturer,
+  onHoverNode,
+  onSelectNode,
+}: {
+  isFocused: boolean
+  isPinned: boolean
+  manufacturer: SupplyScenarioManufacturerNode
+  onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+}) {
+  const statusStyles = getManufacturerStatusStyles(manufacturer.isCurrent)
+
   return (
-    entities.find((entity) => entity.id === selectedEntityId) ?? entities[0]
+    <button
+      type="button"
+      onClick={() => onSelectNode(manufacturer.id)}
+      onMouseEnter={() => onHoverNode(manufacturer.id)}
+      onMouseLeave={() => onHoverNode(null)}
+      className={cn(
+        "group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+        isFocused
+          ? "bg-white/[0.07]"
+          : isPinned
+            ? "bg-white/[0.05]"
+            : manufacturer.isCurrent
+              ? "bg-transparent hover:bg-white/[0.04]"
+              : "bg-transparent hover:bg-white/[0.03]"
+      )}
+      style={{
+        boxShadow:
+          isFocused || isPinned
+            ? `inset 2px 0 0 ${isFocused ? "color-mix(in oklab, var(--primary) 48%, transparent)" : "color-mix(in oklab, var(--primary) 28%, transparent)"}`
+            : "none",
+      }}
+    >
+      <span
+        className={cn(
+          "h-2 w-2 flex-shrink-0 rounded-full",
+          statusStyles.dotClassName
+        )}
+        style={{
+          boxShadow: statusStyles.dotShadow,
+        }}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-white/84">
+          {manufacturer.name}
+        </p>
+        <p className="text-[11px] text-white/38">
+          {manufacturer.location.city}, {manufacturer.location.country}
+        </p>
+      </div>
+      <span
+        className={cn(
+          "rounded-full px-2 py-1 text-[10px] font-medium",
+          statusStyles.badgeClassName
+        )}
+      >
+        {manufacturer.isCurrent ? "Current" : "Alternate"}
+      </span>
+      {isPinned ? (
+        <span className="hidden rounded-full border border-white/12 bg-white/[0.05] px-2 py-1 text-[10px] font-medium text-white/58 md:inline-flex">
+          Selected
+        </span>
+      ) : null}
+      <span className="hidden font-mono text-[10px] tracking-[0.14em] text-white/32 uppercase sm:block">
+        {manufacturer.location.countryCode}
+      </span>
+    </button>
   )
 }
 
 export function GlobeView({
-  data,
   className,
-  selectedEntityId,
-  onSelectEntity,
+  hoveredNodeId,
+  onHoverNode,
+  onSelectNode,
+  pinnedManufacturerByComponent,
+  scenario,
+  selectedNodeId,
 }: GlobeViewProps) {
-  const selectedEntity = getSelectedEntity(selectedEntityId, data.entities)
-  const selectedLocation = data.locations.find(
-    (location) => location.id === selectedEntity.locationId
-  )
+  const selectedComponentId = getLinkedComponentId(scenario, selectedNodeId)
+  const hoveredComponentId = getLinkedComponentId(scenario, hoveredNodeId)
 
   return (
     <section
       className={cn(
-        "panel-surface flex min-h-0 flex-col rounded-2xl",
+        "panel-surface flex min-h-0 flex-col overflow-hidden rounded-2xl",
         className
       )}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-medium text-foreground">Globe</h2>
-          <p className="text-xs text-muted-foreground">Geographic context</p>
-        </div>
-        <Button variant="ghost" size="xs">
-          <HugeiconsIcon
-            icon={MapsGlobal01Icon}
-            strokeWidth={2}
-            data-icon="inline-start"
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div
+            className="h-2 w-2 rounded-full"
+            style={{
+              background: "color-mix(in oklab, var(--primary) 76%, white 8%)",
+              boxShadow:
+                "0 0 9px color-mix(in oklab, var(--primary) 44%, transparent)",
+            }}
           />
-          Overview
-        </Button>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-4 px-4 py-4">
-        <div className="relative flex min-h-[24rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] md:min-h-[27rem]">
-          <div className="absolute inset-6 rounded-full border border-white/12" />
-          <div className="absolute inset-14 rounded-full border border-white/10" />
-          <InteractiveGlobe
-            className="relative z-10"
-            entities={data.entities}
-            links={data.links}
-            locations={data.locations}
-            selectedLocationId={selectedLocation?.id}
-          />
-
-          <div className="absolute top-4 left-4 rounded-lg border border-white/12 bg-background/84 px-3 py-2 backdrop-blur-sm">
-            <p className="text-xs text-muted-foreground">Focused location</p>
-            <p className="text-sm font-medium text-foreground">
-              {selectedLocation?.name}
+          <div>
+            <h2 className="text-sm font-medium text-white/85">
+              Geographic Routes
+            </h2>
+            <p className="text-[11px] text-white/30">
+              {scenario.destination.label},{" "}
+              {scenario.destination.location.country}
             </p>
           </div>
         </div>
+        <div className="flex items-center gap-1.5">
+          <span className="dashboard-chip-accent">
+            {scenario.stats.siteCount} sites
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="dashboard-control-surface text-white/70 hover:bg-white/[0.05] hover:text-white"
+            onClick={() => {
+              onHoverNode(null)
+              onSelectNode(null)
+            }}
+          >
+            <HugeiconsIcon
+              icon={MapsGlobal01Icon}
+              strokeWidth={2}
+              data-icon="inline-start"
+            />
+            Overview
+          </Button>
+        </div>
+      </div>
 
-        <div className="grid gap-2">
-          {data.locations.slice(0, 4).map((location) => {
-            const entity = data.entities.find(
-              (item) => item.locationId === location.id
-            )
-
-            return (
-              <button
-                key={location.id}
-                type="button"
-                onClick={() => {
-                  if (entity) {
-                    onSelectEntity?.(entity.id)
-                  }
+      <div className="flex flex-1 flex-col gap-4 px-4 py-4">
+        <div
+          className="relative flex min-h-[27rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] md:min-h-[31rem]"
+          style={{
+            background:
+              "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 5%, transparent), transparent 36%), radial-gradient(circle at 50% 50%, rgba(255,255,255,0.012), transparent 52%), linear-gradient(180deg, rgba(7,7,12,0.98), rgba(5,5,8,1))",
+          }}
+        >
+          <div className="pointer-events-none absolute inset-0">
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(circle at 8% 12%, rgba(255,255,255,0.022), transparent 18%), radial-gradient(circle at 91% 13%, rgba(255,255,255,0.02), transparent 16%), radial-gradient(circle at 10% 88%, rgba(255,255,255,0.018), transparent 16%), radial-gradient(circle at 89% 87%, rgba(255,255,255,0.016), transparent 16%)",
+              }}
+            />
+            {CORNER_STAR_DOTS.map((star, index) => (
+              <span
+                key={`${star.left}-${star.top}-${index}`}
+                className="absolute rounded-full bg-white"
+                style={{
+                  boxShadow: `0 0 ${star.size * 5}px rgba(255,255,255,${Math.min(
+                    star.opacity * 0.35,
+                    0.24
+                  )})`,
+                  height: star.size,
+                  left: star.left,
+                  opacity: star.opacity,
+                  top: star.top,
+                  width: star.size,
                 }}
-                className={cn(
-                  "flex items-center justify-between rounded-xl border px-3 py-3 text-left transition-colors",
-                  location.id === selectedLocation?.id
-                    ? "border-primary/60 bg-card"
-                    : "border-border/70 bg-card/88 hover:bg-card"
-                )}
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {location.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {location.country}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="hidden sm:inline">
-                    {location.throughput}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <HugeiconsIcon
-                      icon={MapPinpoint02Icon}
-                      strokeWidth={2}
-                      className="text-primary"
-                    />
-                    {location.region}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
+              />
+            ))}
+          </div>
+          <div className="absolute inset-5 rounded-full border border-white/[0.09]" />
+          <div className="absolute inset-14 rounded-full border border-white/[0.06]" />
+
+          <InteractiveGlobe
+            className="relative z-10"
+            hoveredNodeId={hoveredNodeId}
+            onHoverNode={onHoverNode}
+            onSelectNode={onSelectNode}
+            pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+            scenario={scenario}
+            selectedNodeId={selectedNodeId}
+          />
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <HugeiconsIcon icon={Route03Icon} strokeWidth={2} />
-          Drag to rotate. Continents, countries, and routes trace the visible
-          hemisphere.
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-white/42">
+            <HugeiconsIcon icon={Route03Icon} strokeWidth={2} />
+            Select a route or site to inspect the detail drawer in Supply Chain
+            Graph.
+          </div>
+          <span className="dashboard-chip-muted hidden sm:inline-flex">
+            {scenario.stats.currentRouteCount} current routes
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="dashboard-section-label">Route Selector</p>
+              <p className="mt-1 text-[11px] text-white/34">
+                Current = used in this sample scenario. Alternate = modeled
+                fallback, not another active choice. Click a manufacturer to
+                keep that route active for its component.
+              </p>
+            </div>
+            <span className="dashboard-chip-muted">Details in graph</span>
+          </div>
+
+          <div className="grid gap-2.5">
+            {scenario.components.map((component) => {
+              const manufacturers = getManufacturerForComponent(
+                scenario,
+                component
+              )
+              const isFocusedComponent =
+                selectedComponentId === component.id ||
+                hoveredComponentId === component.id
+              const currentCount = manufacturers.filter(
+                (manufacturer) => manufacturer.isCurrent
+              ).length
+
+              return (
+                <div
+                  key={component.id}
+                  className={cn(
+                    "rounded-xl border transition-colors",
+                    isFocusedComponent
+                      ? "border-white/[0.12]"
+                      : "border-white/[0.07] hover:border-white/[0.09]"
+                  )}
+                  style={{
+                    background: isFocusedComponent
+                      ? "linear-gradient(180deg, color-mix(in oklab, var(--primary) 10%, rgba(10,10,18,0.86)), rgba(10,10,18,0.74))"
+                      : "rgba(10,10,18,0.58)",
+                    boxShadow: isFocusedComponent
+                      ? "0 0 0 1px color-mix(in oklab, var(--primary) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.04)"
+                      : "inset 0 1px 0 rgba(255,255,255,0.03)",
+                  }}
+                  onMouseEnter={() => onHoverNode(component.id)}
+                  onMouseLeave={() => onHoverNode(null)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectNode(component.id)}
+                    className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{
+                            background:
+                              "color-mix(in oklab, var(--primary) 82%, white 8%)",
+                            boxShadow:
+                              "0 0 10px color-mix(in oklab, var(--primary) 26%, transparent)",
+                          }}
+                        />
+                        <p className="truncate text-sm font-medium text-white/88">
+                          {component.label}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-white/38">
+                        {currentCount} current ·{" "}
+                        {manufacturers.length - currentCount} alternate ·{" "}
+                        {scenario.destination.label}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="dashboard-chip-muted">
+                        {manufacturers.length} sites
+                      </span>
+                    </div>
+                  </button>
+
+                  <div className="px-3 pb-3">
+                    <div className="overflow-hidden rounded-xl border border-white/[0.05] bg-[rgba(6,6,12,0.44)]">
+                      {manufacturers.map((manufacturer, index) => {
+                        const isFocusedManufacturer =
+                          selectedNodeId === manufacturer.id ||
+                          hoveredNodeId === manufacturer.id
+                        const isPinnedManufacturer =
+                          pinnedManufacturerByComponent[component.id] ===
+                          manufacturer.id
+
+                        return (
+                          <div
+                            key={manufacturer.id}
+                            className={cn(
+                              index > 0 ? "border-t border-white/[0.05]" : ""
+                            )}
+                          >
+                            <ManufacturerRow
+                              isFocused={isFocusedManufacturer}
+                              isPinned={isPinnedManufacturer}
+                              manufacturer={manufacturer}
+                              onHoverNode={(nodeId) =>
+                                nodeId
+                                  ? onHoverNode(nodeId)
+                                  : onHoverNode(component.id)
+                              }
+                              onSelectNode={onSelectNode}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     </section>

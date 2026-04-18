@@ -11,72 +11,23 @@ import {
   ZoomOutAreaIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import rawData from "@/lib/sampledata.json"
+import {
+  type SupplyScenario,
+  type SupplyScenarioGraphNode,
+  type SupplyScenarioSelectableNodeId,
+} from "@/lib/supply-chain-scenario"
+import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
 // Data + types
 // ---------------------------------------------------------------------------
 
-// Node positions are computed for this specific dataset
-const NODE_POSITIONS: Record<string, { x: number; y: number }> = {
-  product_lint_roller: { x: -55, y: -55 },
-  component_plastic: { x: 220, y: -35 },
-  component_cardboard: { x: -230, y: 225 },
-  component_adhesive: { x: -230, y: -295 },
-  mfr_pla_1: { x: 442, y: -380 },
-  mfr_pla_2: { x: 442, y: 270 },
-  mfr_car_1: { x: -120, y: 595 },
-  mfr_car_2: { x: -682, y: 270 },
-  mfr_adh_1: { x: -682, y: -380 },
-  mfr_adh_2: { x: -120, y: -705 },
-}
+type GraphNodeState = SupplyScenarioGraphNode
+const NODE_SNAP_DURATION_MS = 1100
 
-interface BaseNodeData {
-  id: string
-  nodeKind: "base"
-  baseType: "product" | "component"
-  label: string
-  subtitle?: string
-}
-
-interface ManufacturerNodeData {
-  id: string
-  nodeKind: "manufacturer"
-  name: string
-  component: string
-  isCurrent: boolean
-  location: { country: string; city: string; lat: number; lng: number }
-  ecoScore: number
-  gridCarbonScore: number
-  climateRiskScore: number
-  transportEmissionsTco2e: number
-  manufacturingEmissionsTco2e: { q10: number; q50: number; q90: number }
-  certifications: string[]
-}
-
-type RawNode = BaseNodeData | ManufacturerNodeData
-
-interface GraphNode {
-  id: string
-  position: { x: number; y: number }
-  data: RawNode
-}
-
-interface GraphEdge {
-  id: string
-  source: string
-  target: string
-}
-
-// Merge JSON data with positions
-function buildGraphData() {
-  const raw = rawData as unknown as { nodes: RawNode[]; edges: GraphEdge[] }
-  const nodes: GraphNode[] = raw.nodes.map((n) => ({
-    id: n.id,
-    position: NODE_POSITIONS[n.id] ?? { x: 0, y: 0 },
-    data: n,
-  }))
-  return { nodes, edges: raw.edges }
+interface GraphViewportSize {
+  height: number
+  width: number
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +38,24 @@ const CERT_LABELS: Record<string, string> = {
   iso14001: "ISO 14001",
   sbt: "SBT",
   cdp_a: "CDP A-List",
+}
+
+function getManufacturerStatusPresentation(isCurrent: boolean) {
+  return isCurrent
+    ? {
+        badgeBackground: "rgba(252,211,77,0.1)",
+        badgeBorder: "rgba(252,211,77,0.22)",
+        badgeText: "#FCD34D",
+        label: "CURRENT",
+        pulseClassName: "bg-amber-300",
+      }
+    : {
+        badgeBackground: "rgba(52,211,153,0.1)",
+        badgeBorder: "rgba(52,211,153,0.22)",
+        badgeText: "#34D399",
+        label: "ALTERNATE",
+        pulseClassName: "bg-emerald-400",
+      }
 }
 
 function getEcoConfig(score: number) {
@@ -118,23 +87,384 @@ function getEcoConfig(score: number) {
   }
 }
 
-function getNodeSize(node: GraphNode) {
+function getNodeSize(node: GraphNodeState) {
   const d = node.data
-  if (d.nodeKind === "base" && d.baseType === "product")
-    return { w: 120, h: 120 }
-  if (d.nodeKind === "manufacturer") return { w: 252, h: 120 }
+  if (d.kind === "product") return { w: 136, h: 100 }
+  if (d.kind === "manufacturer") return { w: 252, h: 120 }
   return { w: 168, h: 68 }
 }
 
+function easeOutCubic(value: number) {
+  return 1 - (1 - value) ** 3
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function getNodeMobility(node: GraphNodeState) {
+  if (node.data.kind === "product") {
+    return 0
+  }
+
+  if (node.data.kind === "component") {
+    return 0.5
+  }
+
+  return 1
+}
+
+function getNodeCenter(
+  node: GraphNodeState,
+  position: { x: number; y: number } = node.position
+) {
+  const { w, h } = getNodeSize(node)
+
+  return {
+    x: position.x + w / 2,
+    y: position.y + h / 2,
+  }
+}
+
+function getLayoutConfig(viewport: GraphViewportSize | null) {
+  const width = viewport?.width ?? 1200
+  const height = viewport?.height ?? 900
+  const compactness = clamp((960 - Math.min(width, height)) / 360, 0, 1)
+
+  return {
+    componentPull: 0.56 - compactness * 0.09,
+    fitPaddingX: 112 - compactness * 34,
+    fitPaddingY: 96 - compactness * 28,
+    fitZoomBoost: 1.05 + compactness * 0.12,
+    manufacturerPull: 0.44 - compactness * 0.12,
+    paddingX: 26 - compactness * 8,
+    paddingY: 24 - compactness * 7,
+  }
+}
+
+function clonePositionsMap(nodes: GraphNodeState[]) {
+  return new Map(nodes.map((node) => [node.id, { ...node.position }]))
+}
+
+function buildCompactGraphNodes(
+  nodes: GraphNodeState[],
+  viewport: GraphViewportSize | null
+) {
+  const productNode = nodes.find((node) => node.data.kind === "product")
+
+  if (!productNode) {
+    return nodes
+  }
+
+  const config = getLayoutConfig(viewport)
+  const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
+  const anchorPositions = new Map<string, { x: number; y: number }>()
+  const productAnchor = { ...productNode.position }
+
+  anchorPositions.set(productNode.id, productAnchor)
+
+  nodes.forEach((node) => {
+    if (node.data.kind !== "component") {
+      return
+    }
+
+    anchorPositions.set(node.id, {
+      x:
+        productAnchor.x +
+        (node.position.x - productAnchor.x) * config.componentPull,
+      y:
+        productAnchor.y +
+        (node.position.y - productAnchor.y) * config.componentPull,
+    })
+  })
+
+  nodes.forEach((node) => {
+    if (node.data.kind !== "manufacturer") {
+      return
+    }
+
+    const sourceComponent = nodeById.get(node.data.componentId)
+    const sourceComponentPosition = sourceComponent?.position ?? productAnchor
+    const compactComponentPosition =
+      anchorPositions.get(node.data.componentId) ?? sourceComponentPosition
+
+    anchorPositions.set(node.id, {
+      x:
+        compactComponentPosition.x +
+        (node.position.x - sourceComponentPosition.x) * config.manufacturerPull,
+      y:
+        compactComponentPosition.y +
+        (node.position.y - sourceComponentPosition.y) * config.manufacturerPull,
+    })
+  })
+
+  const positionedNodes = nodes.map((node) => ({
+    ...node,
+    position: anchorPositions.get(node.id) ?? node.position,
+  }))
+
+  return relaxNodeLayout(positionedNodes, anchorPositions, config)
+}
+
+function relaxNodeLayout(
+  nodes: GraphNodeState[],
+  anchors: Map<string, { x: number; y: number }>,
+  config: ReturnType<typeof getLayoutConfig>
+) {
+  const positions = clonePositionsMap(nodes)
+
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    let totalShift = 0
+
+    for (let index = 0; index < nodes.length; index += 1) {
+      for (
+        let otherIndex = index + 1;
+        otherIndex < nodes.length;
+        otherIndex += 1
+      ) {
+        const node = nodes[index]
+        const otherNode = nodes[otherIndex]
+        const nodePosition = positions.get(node.id) ?? node.position
+        const otherPosition = positions.get(otherNode.id) ?? otherNode.position
+        const nodeCenter = getNodeCenter(node, nodePosition)
+        const otherCenter = getNodeCenter(otherNode, otherPosition)
+        const { w: nodeWidth, h: nodeHeight } = getNodeSize(node)
+        const { w: otherWidth, h: otherHeight } = getNodeSize(otherNode)
+        const deltaX = nodeCenter.x - otherCenter.x
+        const deltaY = nodeCenter.y - otherCenter.y
+        const overlapX =
+          nodeWidth / 2 + otherWidth / 2 + config.paddingX - Math.abs(deltaX)
+        const overlapY =
+          nodeHeight / 2 + otherHeight / 2 + config.paddingY - Math.abs(deltaY)
+
+        if (overlapX <= 0 || overlapY <= 0) {
+          continue
+        }
+
+        const nodeMobility = getNodeMobility(node)
+        const otherMobility = getNodeMobility(otherNode)
+        const totalMobility = nodeMobility + otherMobility || 1
+        const nodeAnchor = anchors.get(node.id) ?? node.position
+        const otherAnchor = anchors.get(otherNode.id) ?? otherNode.position
+
+        if (overlapX < overlapY) {
+          const direction =
+            deltaX === 0
+              ? nodeAnchor.x >= otherAnchor.x
+                ? 1
+                : -1
+              : Math.sign(deltaX)
+          const shift = overlapX + 0.5
+
+          if (nodeMobility > 0) {
+            nodePosition.x += direction * shift * (nodeMobility / totalMobility)
+          }
+
+          if (otherMobility > 0) {
+            otherPosition.x -=
+              direction * shift * (otherMobility / totalMobility)
+          }
+
+          totalShift += shift
+        } else {
+          const direction =
+            deltaY === 0
+              ? nodeAnchor.y >= otherAnchor.y
+                ? 1
+                : -1
+              : Math.sign(deltaY)
+          const shift = overlapY + 0.5
+
+          if (nodeMobility > 0) {
+            nodePosition.y += direction * shift * (nodeMobility / totalMobility)
+          }
+
+          if (otherMobility > 0) {
+            otherPosition.y -=
+              direction * shift * (otherMobility / totalMobility)
+          }
+
+          totalShift += shift
+        }
+
+        positions.set(node.id, nodePosition)
+        positions.set(otherNode.id, otherPosition)
+      }
+    }
+
+    nodes.forEach((node) => {
+      const mobility = getNodeMobility(node)
+
+      if (mobility === 0) {
+        return
+      }
+
+      const anchor = anchors.get(node.id)
+      const position = positions.get(node.id) ?? node.position
+
+      if (!anchor) {
+        return
+      }
+
+      const spring = node.data.kind === "component" ? 0.1 : 0.06
+
+      position.x += (anchor.x - position.x) * spring
+      position.y += (anchor.y - position.y) * spring
+      positions.set(node.id, position)
+    })
+
+    if (totalShift < 0.5) {
+      break
+    }
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    position: positions.get(node.id) ?? node.position,
+  }))
+}
+
+function resolveNodeSettleTarget(
+  nodeId: string,
+  nodes: GraphNodeState[],
+  anchors: Map<string, { x: number; y: number }>
+) {
+  const node = nodes.find((candidate) => candidate.id === nodeId)
+
+  if (!node) {
+    return null
+  }
+
+  const anchor = anchors.get(nodeId) ?? node.position
+  const target = { ...node.position }
+  const { w: nodeWidth, h: nodeHeight } = getNodeSize(node)
+
+  for (let iteration = 0; iteration < 18; iteration += 1) {
+    let shifted = false
+
+    for (const otherNode of nodes) {
+      if (otherNode.id === nodeId) {
+        continue
+      }
+
+      const otherCenter = getNodeCenter(otherNode)
+      const nodeCenter = getNodeCenter(node, target)
+      const { w: otherWidth, h: otherHeight } = getNodeSize(otherNode)
+      const deltaX = nodeCenter.x - otherCenter.x
+      const deltaY = nodeCenter.y - otherCenter.y
+      const overlapX = nodeWidth / 2 + otherWidth / 2 + 18 - Math.abs(deltaX)
+      const overlapY = nodeHeight / 2 + otherHeight / 2 + 14 - Math.abs(deltaY)
+
+      if (overlapX <= 0 || overlapY <= 0) {
+        continue
+      }
+
+      shifted = true
+
+      if (overlapX < overlapY) {
+        const direction =
+          deltaX === 0
+            ? anchor.x >= otherNode.position.x
+              ? 1
+              : -1
+            : Math.sign(deltaX)
+        target.x += direction * (overlapX + 0.5)
+      } else {
+        const direction =
+          deltaY === 0
+            ? anchor.y >= otherNode.position.y
+              ? 1
+              : -1
+            : Math.sign(deltaY)
+        target.y += direction * (overlapY + 0.5)
+      }
+    }
+
+    if (!shifted) {
+      break
+    }
+  }
+
+  return target
+}
+
+function getGraphBounds(nodes: GraphNodeState[]) {
+  if (nodes.length === 0) {
+    return {
+      bottom: 0,
+      centerX: 0,
+      centerY: 0,
+      height: 1,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 1,
+    }
+  }
+
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+
+  nodes.forEach((node) => {
+    const { w, h } = getNodeSize(node)
+
+    left = Math.min(left, node.position.x)
+    top = Math.min(top, node.position.y)
+    right = Math.max(right, node.position.x + w)
+    bottom = Math.max(bottom, node.position.y + h)
+  })
+
+  return {
+    bottom,
+    centerX: (left + right) / 2,
+    centerY: (top + bottom) / 2,
+    height: Math.max(1, bottom - top),
+    left,
+    right,
+    top,
+    width: Math.max(1, right - left),
+  }
+}
+
+function getFitTransform(
+  nodes: GraphNodeState[],
+  viewport: GraphViewportSize | null
+) {
+  const width = viewport?.width ?? 0
+  const height = viewport?.height ?? 0
+
+  if (!width || !height) {
+    return null
+  }
+
+  const config = getLayoutConfig(viewport)
+  const bounds = getGraphBounds(nodes)
+  const availableWidth = Math.max(1, width - config.fitPaddingX * 2)
+  const availableHeight = Math.max(1, height - config.fitPaddingY * 2)
+  const fittedScale = Math.min(
+    availableWidth / bounds.width,
+    availableHeight / bounds.height
+  )
+  const scale = clamp(fittedScale * config.fitZoomBoost, 0.52, 1.28)
+
+  return {
+    scale,
+    x: width / 2 - bounds.centerX * scale,
+    y: height / 2 - bounds.centerY * scale,
+  }
+}
+
 // Intersection of a ray from node centre with its boundary
-function getIntersection(node: GraphNode, dx: number, dy: number) {
+function getIntersection(node: GraphNodeState, dx: number, dy: number) {
   const { w, h } = getNodeSize(node)
   const cx = node.position.x + w / 2
   const cy = node.position.y + h / 2
   if (dx === 0 && dy === 0) return { x: cx, y: cy }
   const pad = 10
   const d = node.data
-  if (d.nodeKind === "base" && d.baseType === "product") {
+  if (d.kind === "product") {
     const r = w / 2 + pad
     const dist = Math.hypot(dx, dy)
     return { x: cx + (dx / dist) * r, y: cy + (dy / dist) * r }
@@ -187,13 +517,17 @@ function EcoScoreRing({ score, size = 64 }: { score: number; size?: number }) {
 }
 
 interface EdgeProps {
-  sourceNode: GraphNode
-  targetNode: GraphNode
+  drawDelay: number
+  flowActive: boolean
+  sourceNode: GraphNodeState
+  targetNode: GraphNodeState
   selected: boolean
   hovered: boolean
 }
 
 function ConnectionEdge({
+  drawDelay,
+  flowActive,
   sourceNode,
   targetNode,
   selected,
@@ -232,8 +566,10 @@ function ConnectionEdge({
         <path
           d={path}
           fill="none"
-          stroke={selected ? "rgba(139,92,246,0.35)" : "rgba(255,255,255,0.08)"}
-          strokeWidth={selected ? 8 : 5}
+          stroke={
+            selected ? "rgba(233,224,255,0.34)" : "rgba(226,220,235,0.16)"
+          }
+          strokeWidth={selected ? 9 : 6}
           style={{ filter: selected ? "blur(6px)" : "blur(3px)" }}
         />
       )}
@@ -243,24 +579,40 @@ function ConnectionEdge({
         fill="none"
         stroke={
           selected
-            ? "#8b5cf6"
+            ? "#F1E9FF"
             : hovered
-              ? "rgba(255,255,255,0.3)"
-              : "rgba(255,255,255,0.07)"
+              ? "rgba(228,219,250,0.88)"
+              : "rgba(214,207,224,0.68)"
         }
-        strokeWidth={selected ? 1.5 : 1}
+        pathLength={100}
+        strokeDasharray="100"
+        strokeWidth={selected ? 2.6 : hovered ? 2.1 : 1.8}
         markerEnd={`url(#${markerId})`}
-        style={{ transition: "stroke 0.2s, stroke-width 0.2s" }}
+        className="edge-draw"
+        style={{
+          animationDelay: `${drawDelay}s`,
+          transition: "stroke 0.2s, stroke-width 0.2s",
+        }}
       />
       {/* Animated flow particles when selected */}
-      {selected && (
+      <path
+        d={path}
+        fill="none"
+        stroke="rgba(226,220,235,0.14)"
+        strokeWidth={0.9}
+        strokeDasharray="7 30"
+        className="edge-flow-ambient"
+      />
+      {(selected || flowActive) && (
         <path
           d={path}
           fill="none"
-          stroke="rgba(167,139,250,0.7)"
-          strokeWidth={1.5}
-          strokeDasharray="5 14"
-          className="edge-flow"
+          stroke={
+            selected ? "rgba(255,250,255,0.94)" : "rgba(233,224,255,0.48)"
+          }
+          strokeWidth={selected ? 1.8 : 1.2}
+          strokeDasharray={selected ? "5 14" : "6 18"}
+          className={selected ? "edge-flow" : "edge-flow-subtle"}
         />
       )}
     </g>
@@ -271,21 +623,37 @@ function ConnectionEdge({
 // Main graph component
 // ---------------------------------------------------------------------------
 
-export function SupplyChainGraph() {
+interface SupplyChainGraphProps {
+  hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  scenario: SupplyScenario
+  selectedNodeId: SupplyScenarioSelectableNodeId | null
+}
+
+export function SupplyChainGraph({
+  hoveredNodeId,
+  onHoverNode,
+  onSelectNode,
+  scenario,
+  selectedNodeId,
+}: SupplyChainGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
+  const snapFrameRef = useRef<number | null>(null)
+  const snapNodeIdRef = useRef<string | null>(null)
+  const layoutAnchorsRef = useRef(new Map<string, { x: number; y: number }>())
   const velRef = useRef({ x: 0, y: 0, ts: 0, lx: 0, ly: 0 })
-
-  const { nodes: NODES, edges: EDGES } = React.useMemo(
-    () => buildGraphData(),
-    []
+  const [viewportSize, setViewportSize] = useState<GraphViewportSize | null>(
+    null
   )
-
-  const [nodes, setNodes] = useState<GraphNode[]>(NODES)
-  const [edges] = useState<GraphEdge[]>(EDGES)
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 0.9 })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const layoutNodes = React.useMemo(
+    () => buildCompactGraphNodes(scenario.graph.nodes, viewportSize),
+    [scenario.graph.nodes, viewportSize]
+  )
+  const [nodes, setNodes] = useState<GraphNodeState[]>(layoutNodes)
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
   const [dragState, setDragState] = useState<{
     type: "canvas" | "node"
     id?: string
@@ -297,23 +665,55 @@ export function SupplyChainGraph() {
   } | null>(null)
   const [panelVisible, setPanelVisible] = useState(false)
 
-  // Centre graph on mount
+  // Measure graph viewport for responsive layout + fit
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const { width, height } = el.getBoundingClientRect()
-    setTransform({ x: width / 2, y: height / 2, scale: 0.85 })
+
+    const updateSize = () => {
+      const { width, height } = el.getBoundingClientRect()
+      setViewportSize((previous) =>
+        previous?.width === width && previous?.height === height
+          ? previous
+          : { width, height }
+      )
+    }
+
+    updateSize()
+
+    const observer = new ResizeObserver(() => {
+      updateSize()
+    })
+
+    observer.observe(el)
+
+    return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    layoutAnchorsRef.current = new Map(
+      layoutNodes.map((node) => [node.id, { ...node.position }])
+    )
+    setNodes(layoutNodes)
+  }, [layoutNodes])
+
+  useEffect(() => {
+    const fittedTransform = getFitTransform(layoutNodes, viewportSize)
+
+    if (fittedTransform) {
+      setTransform(fittedTransform)
+    }
+  }, [layoutNodes, viewportSize])
 
   // Show panel with a tick of delay for animation
   useEffect(() => {
-    if (selectedId) {
+    if (selectedNodeId) {
       const t = setTimeout(() => setPanelVisible(true), 10)
       return () => clearTimeout(t)
     } else {
       setPanelVisible(false)
     }
-  }, [selectedId])
+  }, [selectedNodeId])
 
   // Prevent page scroll on canvas
   useEffect(() => {
@@ -331,12 +731,64 @@ export function SupplyChainGraph() {
     }
   }, [])
 
-  const screenToWorld = useCallback(
-    (sx: number, sy: number) => ({
-      x: (sx - transform.x) / transform.scale,
-      y: (sy - transform.y) / transform.scale,
-    }),
-    [transform]
+  const stopSnapAnimation = useCallback((nodeId?: string) => {
+    if (
+      snapFrameRef.current !== null &&
+      (!nodeId || !snapNodeIdRef.current || snapNodeIdRef.current === nodeId)
+    ) {
+      cancelAnimationFrame(snapFrameRef.current)
+      snapFrameRef.current = null
+      snapNodeIdRef.current = null
+    }
+  }, [])
+
+  const animateNodeToTarget = useCallback(
+    (
+      nodeId: string,
+      from: { x: number; y: number },
+      target: { x: number; y: number }
+    ) => {
+      if (Math.hypot(target.x - from.x, target.y - from.y) < 0.75) {
+        return
+      }
+
+      stopSnapAnimation()
+
+      const startTime = performance.now()
+
+      const tick = (timestamp: number) => {
+        const progress = Math.min(
+          1,
+          (timestamp - startTime) / NODE_SNAP_DURATION_MS
+        )
+        const eased = easeOutCubic(progress)
+
+        setNodes((previousNodes) =>
+          previousNodes.map((node) =>
+            node.id === nodeId
+              ? {
+                  ...node,
+                  position: {
+                    x: from.x + (target.x - from.x) * eased,
+                    y: from.y + (target.y - from.y) * eased,
+                  },
+                }
+              : node
+          )
+        )
+
+        if (progress < 1) {
+          snapFrameRef.current = requestAnimationFrame(tick)
+        } else {
+          snapFrameRef.current = null
+          snapNodeIdRef.current = null
+        }
+      }
+
+      snapNodeIdRef.current = nodeId
+      snapFrameRef.current = requestAnimationFrame(tick)
+    },
+    [stopSnapAnimation]
   )
 
   // --- Wheel zoom/pan ---
@@ -378,11 +830,12 @@ export function SupplyChainGraph() {
   }, [])
 
   const handleFit = useCallback(() => {
-    const el = containerRef.current
-    if (!el) return
-    const { width, height } = el.getBoundingClientRect()
-    setTransform({ x: width / 2, y: height / 2, scale: 0.85 })
-  }, [])
+    const fittedTransform = getFitTransform(nodes, viewportSize)
+
+    if (fittedTransform) {
+      setTransform(fittedTransform)
+    }
+  }, [nodes, viewportSize])
 
   // --- Pointer events ---
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -393,6 +846,7 @@ export function SupplyChainGraph() {
 
     if (nodeEl) {
       const nodeId = nodeEl.dataset.nodeId!
+      stopSnapAnimation(nodeId)
       const node = nodes.find((n) => n.id === nodeId)!
       setDragState({
         type: "node",
@@ -467,7 +921,7 @@ export function SupplyChainGraph() {
   const handlePointerUp = (e: React.PointerEvent) => {
     if (dragState?.type === "canvas") {
       if (!dragState.moved) {
-        setSelectedId(null)
+        onSelectNode(null)
       } else {
         let vx = velRef.current.x * 16
         let vy = velRef.current.y * 16
@@ -481,26 +935,61 @@ export function SupplyChainGraph() {
         if (Math.abs(vx) > 1 || Math.abs(vy) > 1)
           rafRef.current = requestAnimationFrame(animate)
       }
-    } else if (dragState?.type === "node" && !dragState.moved) {
-      setSelectedId(dragState.id ?? null)
+    } else if (dragState?.type === "node") {
+      if (!dragState.moved) {
+        onSelectNode(dragState.id ?? null)
+      } else if (dragState.id) {
+        const draggedNode = nodes.find((node) => node.id === dragState.id)
+
+        if (draggedNode) {
+          const settledTarget = resolveNodeSettleTarget(
+            dragState.id,
+            nodes,
+            layoutAnchorsRef.current
+          )
+
+          if (settledTarget) {
+            animateNodeToTarget(
+              dragState.id,
+              draggedNode.position,
+              settledTarget
+            )
+          }
+        }
+      }
     }
     setDragState(null)
   }
 
+  useEffect(
+    () => () => {
+      stopSnapAnimation()
+    },
+    [stopSnapAnimation]
+  )
+
   // Keyboard: Escape deselects
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelectedId(null)
+      if (e.key === "Escape") onSelectNode(null)
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [])
+  }, [onSelectNode])
 
   // --- Selected data ---
-  const selectedNode = nodes.find((n) => n.id === selectedId)
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId)
   const selectedMfr =
-    selectedNode?.data.nodeKind === "manufacturer" ? selectedNode.data : null
+    selectedNode?.data.kind === "manufacturer" ? selectedNode.data : null
+  const selectedBaseNode =
+    selectedNode && selectedNode.data.kind !== "manufacturer"
+      ? selectedNode.data
+      : null
   const ecoConfig = selectedMfr ? getEcoConfig(selectedMfr.ecoScore) : null
+  const productNode =
+    nodes.find((node) => node.id === scenario.product.id) ??
+    nodes[0]
+  const productNodeSize = getNodeSize(productNode)
 
   // Cursor
   const cursor =
@@ -510,20 +999,71 @@ export function SupplyChainGraph() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#050508]">
+    <div
+      className="relative h-full w-full overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(circle at 52% 42%, color-mix(in oklab, var(--primary) 6%, transparent), transparent 36%), linear-gradient(180deg, rgba(7,7,12,0.98), rgba(5,5,8,1))",
+      }}
+    >
       {/* Keyframe styles */}
       <style>{`
         @keyframes edge-flow {
-          from { stroke-dashoffset: 19; }
+          from { stroke-dashoffset: 24; }
           to   { stroke-dashoffset: 0;  }
         }
-        .edge-flow { animation: edge-flow 0.7s linear infinite; }
+        .edge-flow { animation: edge-flow 1.8s linear infinite; }
+
+        @keyframes edge-flow-subtle {
+          from { stroke-dashoffset: 36; }
+          to   { stroke-dashoffset: 0;  }
+        }
+        .edge-flow-subtle { animation: edge-flow-subtle 4.2s linear infinite; }
+
+        @keyframes edge-flow-ambient {
+          from { stroke-dashoffset: 54; }
+          to   { stroke-dashoffset: 0;  }
+        }
+        .edge-flow-ambient { animation: edge-flow-ambient 8.5s linear infinite; }
+
+        @keyframes edge-draw {
+          from { stroke-dashoffset: 100; }
+          to   { stroke-dashoffset: 0; }
+        }
+        .edge-draw {
+          animation: edge-draw 0.95s cubic-bezier(0.2,0.9,0.2,1) both;
+        }
 
         @keyframes eco-pulse {
           0%, 100% { opacity: 1;   transform: scale(1);    }
           50%       { opacity: 0.6; transform: scale(1.08); }
         }
-        .eco-pulse { animation: eco-pulse 2.6s ease-in-out infinite; }
+        .eco-pulse { animation: eco-pulse 4.8s ease-in-out infinite; }
+
+        @keyframes node-signal {
+          0%, 100% { opacity: 0.14; transform: scale(0.97); }
+          50% { opacity: 0.34; transform: scale(1.04); }
+        }
+        .node-signal {
+          animation: node-signal 5.8s ease-in-out infinite;
+        }
+
+        @keyframes node-idle-float {
+          0%, 100% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(0, -5px, 0); }
+        }
+        .node-idle-float {
+          animation: node-idle-float 7.4s ease-in-out infinite;
+          will-change: transform;
+        }
+
+        @keyframes node-surface-drift {
+          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.5; }
+          50% { transform: translate3d(1.2%, -1.2%, 0) scale(1.02); opacity: 0.82; }
+        }
+        .node-surface-drift {
+          animation: node-surface-drift 10.5s ease-in-out infinite;
+        }
 
         @keyframes node-pop {
           0%   { transform: scale(0.6); opacity: 0; }
@@ -534,10 +1074,28 @@ export function SupplyChainGraph() {
         .node-pop { animation: node-pop 0.45s cubic-bezier(0.34,1.56,0.64,1) backwards; }
 
         @keyframes ambient-breathe {
-          0%, 100% { opacity: 0.35; }
-          50%       { opacity: 0.55; }
+          0%, 100% { opacity: 0.22; }
+          50%       { opacity: 0.38; }
         }
-        .ambient-breathe { animation: ambient-breathe 4s ease-in-out infinite; }
+        .ambient-breathe { animation: ambient-breathe 8.2s ease-in-out infinite; }
+
+        @keyframes focus-beacon {
+          0%, 100% { opacity: 0.42; transform: scaleX(1); }
+          50% { opacity: 0.92; transform: scaleX(1.04); }
+        }
+        .focus-beacon {
+          animation: focus-beacon 5.6s ease-in-out infinite;
+          transform-origin: center;
+        }
+
+        @keyframes emblem-pulse {
+          0%, 100% { opacity: 0.88; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.05); }
+        }
+        .emblem-pulse {
+          animation: emblem-pulse 6.2s ease-in-out infinite;
+          transform-origin: center;
+        }
 
         @keyframes panel-slide-in {
           from { opacity: 0; transform: translateX(24px); }
@@ -550,21 +1108,37 @@ export function SupplyChainGraph() {
       <div className="pointer-events-none absolute inset-0">
         <svg width="100%" height="100%">
           <pattern
-            id="gc-dots"
-            x={transform.x % (20 * transform.scale)}
-            y={transform.y % (20 * transform.scale)}
-            width={20 * transform.scale}
-            height={20 * transform.scale}
+            id="gc-grid-minor"
+            x={transform.x % (26 * transform.scale)}
+            y={transform.y % (26 * transform.scale)}
+            width={26 * transform.scale}
+            height={26 * transform.scale}
             patternUnits="userSpaceOnUse"
           >
-            <circle
-              cx={transform.scale}
-              cy={transform.scale}
-              r={Math.max(0.5, transform.scale * 0.6)}
-              fill="rgba(255,255,255,0.04)"
+            <path
+              d={`M ${26 * transform.scale} 0 L 0 0 0 ${26 * transform.scale}`}
+              fill="none"
+              stroke="rgba(226,223,218,0.12)"
+              strokeWidth="1"
             />
           </pattern>
-          <rect width="100%" height="100%" fill="url(#gc-dots)" />
+          <pattern
+            id="gc-grid-major"
+            x={transform.x % (104 * transform.scale)}
+            y={transform.y % (104 * transform.scale)}
+            width={104 * transform.scale}
+            height={104 * transform.scale}
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M ${104 * transform.scale} 0 L 0 0 0 ${104 * transform.scale}`}
+              fill="none"
+              stroke="rgba(246,244,240,0.18)"
+              strokeWidth="1"
+            />
+          </pattern>
+          <rect width="100%" height="100%" fill="url(#gc-grid-minor)" />
+          <rect width="100%" height="100%" fill="url(#gc-grid-major)" />
         </svg>
       </div>
 
@@ -574,16 +1148,16 @@ export function SupplyChainGraph() {
         style={{
           left:
             transform.x +
-            (NODE_POSITIONS.product_lint_roller.x + 60) * transform.scale -
+            (productNode.position.x + productNodeSize.w / 2) * transform.scale -
             300,
           top:
             transform.y +
-            (NODE_POSITIONS.product_lint_roller.y + 60) * transform.scale -
+            (productNode.position.y + productNodeSize.h / 2) * transform.scale -
             300,
           width: 600,
           height: 600,
           background:
-            "radial-gradient(circle, rgba(99,102,241,0.18) 0%, rgba(99,102,241,0.04) 50%, transparent 70%)",
+            "radial-gradient(circle, color-mix(in oklab, var(--primary) 11%, transparent) 0%, color-mix(in oklab, var(--primary) 2.5%, transparent) 48%, transparent 68%)",
           borderRadius: "50%",
         }}
       />
@@ -643,31 +1217,33 @@ export function SupplyChainGraph() {
                 markerHeight="5"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 2 L 10 5 L 0 8 z" fill="#8b5cf6" />
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="#F1E9FF" />
               </marker>
             </defs>
 
-            {edges.map((edge) => {
-              const src = nodes.find((n) => n.id === edge.source)
-              const tgt = nodes.find((n) => n.id === edge.target)
+            {scenario.graph.edges.map((edge, edgeIndex) => {
+              const src = nodes.find((n) => n.id === edge.sourceId)
+              const tgt = nodes.find((n) => n.id === edge.targetId)
               if (!src || !tgt) return null
               const isSelected =
-                selectedId === edge.id ||
-                selectedId === src.id ||
-                selectedId === tgt.id
-              const isHovered = hoveredId === edge.id
+                selectedNodeId === src.id || selectedNodeId === tgt.id
+              const isHovered =
+                hoveredEdgeId === edge.id ||
+                hoveredNodeId === src.id ||
+                hoveredNodeId === tgt.id
+              const flowActive =
+                src.data.kind === "product" ||
+                (tgt.data.kind === "manufacturer" && tgt.data.isCurrent)
               return (
                 <g
                   key={edge.id}
                   className="pointer-events-auto"
-                  onPointerEnter={() => setHoveredId(edge.id)}
-                  onPointerLeave={() => setHoveredId(null)}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setSelectedId(edge.id)
-                  }}
+                  onPointerEnter={() => setHoveredEdgeId(edge.id)}
+                  onPointerLeave={() => setHoveredEdgeId(null)}
                 >
                   <ConnectionEdge
+                    drawDelay={edgeIndex * 0.08}
+                    flowActive={flowActive}
                     sourceNode={src}
                     targetNode={tgt}
                     selected={isSelected}
@@ -679,11 +1255,11 @@ export function SupplyChainGraph() {
           </svg>
 
           {/* Nodes */}
-          {nodes.map((node) => {
+          {nodes.map((node, index) => {
             const d = node.data
             const { w, h } = getNodeSize(node)
-            const isSelected = selectedId === node.id
-            const isHovered = hoveredId === node.id
+            const isSelected = selectedNodeId === node.id
+            const isHovered = hoveredNodeId === node.id
             const isDragging =
               dragState?.type === "node" && dragState.id === node.id
 
@@ -699,13 +1275,15 @@ export function SupplyChainGraph() {
                   height: h,
                   zIndex: isSelected || isDragging ? 50 : 10,
                 }}
-                onPointerEnter={() => setHoveredId(node.id)}
-                onPointerLeave={() => setHoveredId(null)}
+                onPointerEnter={() => onHoverNode(node.id)}
+                onPointerLeave={() => onHoverNode(null)}
               >
                 <NodeCard
+                  isDragging={isDragging}
                   node={node}
                   isSelected={isSelected}
                   isHovered={isHovered}
+                  motionIndex={index}
                 />
               </div>
             )
@@ -714,7 +1292,7 @@ export function SupplyChainGraph() {
       </div>
 
       {/* Zoom controls */}
-      <div className="absolute bottom-5 left-5 z-20 flex flex-col gap-1 rounded-xl border border-white/[0.07] bg-[rgba(10,10,18,0.85)] p-1.5 shadow-2xl backdrop-blur-xl">
+      <div className="dashboard-control-surface absolute bottom-5 left-5 z-20 flex flex-col gap-1 rounded-xl p-1.5 shadow-2xl">
         <button
           onClick={() => handleZoom("in")}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white/80"
@@ -749,7 +1327,7 @@ export function SupplyChainGraph() {
       </div>
 
       {/* Zoom level badge */}
-      <div className="absolute bottom-5 left-16 z-20 rounded-lg border border-white/[0.06] bg-[rgba(10,10,18,0.7)] px-2 py-1 backdrop-blur-md">
+      <div className="dashboard-control-surface absolute bottom-5 left-16 z-20 rounded-lg px-2 py-1">
         <span className="font-mono text-[10px] text-white/30">
           {Math.round(transform.scale * 100)}%
         </span>
@@ -758,12 +1336,11 @@ export function SupplyChainGraph() {
       {/* Detail panel */}
       {selectedNode && panelVisible && (
         <div
-          className="panel-slide-in absolute top-4 right-4 bottom-4 z-30 flex w-72 flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[rgba(8,8,14,0.92)] shadow-2xl backdrop-blur-2xl"
+          className="dashboard-drawer panel-slide-in absolute top-4 right-4 bottom-4 z-30 flex w-72 flex-col"
           style={
             ecoConfig
               ? {
                   borderTop: `2px solid ${ecoConfig.color}`,
-                  boxShadow: `0 0 0 1px rgba(0,0,0,0.5), 0 24px 64px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04)`,
                 }
               : {}
           }
@@ -774,14 +1351,12 @@ export function SupplyChainGraph() {
               <p className="mb-1 text-[10px] font-medium tracking-[0.2em] text-white/30 uppercase">
                 {selectedMfr
                   ? "Manufacturer"
-                  : (selectedNode.data as BaseNodeData).baseType === "product"
+                  : selectedBaseNode?.kind === "product"
                     ? "Product"
                     : "Component"}
               </p>
               <h3 className="text-sm leading-snug font-semibold text-white/90">
-                {selectedMfr
-                  ? selectedMfr.name
-                  : (selectedNode.data as BaseNodeData).label}
+                {selectedMfr ? selectedMfr.name : selectedBaseNode?.label}
               </h3>
               {selectedMfr && (
                 <p className="mt-0.5 text-xs text-white/35">
@@ -790,7 +1365,7 @@ export function SupplyChainGraph() {
               )}
             </div>
             <button
-              onClick={() => setSelectedId(null)}
+              onClick={() => onSelectNode(null)}
               className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/25 transition-colors hover:bg-white/[0.06] hover:text-white/60"
             >
               <HugeiconsIcon
@@ -803,6 +1378,33 @@ export function SupplyChainGraph() {
 
           {selectedMfr && ecoConfig && (
             <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+              {(() => {
+                const status = getManufacturerStatusPresentation(
+                  selectedMfr.isCurrent
+                )
+
+                return (
+                  <div className="flex items-center justify-end">
+                    <span
+                      className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-[0.12em]"
+                      style={{
+                        background: status.badgeBackground,
+                        borderColor: status.badgeBorder,
+                        color: status.badgeText,
+                      }}
+                    >
+                      <span
+                        className={cn(
+                          "eco-pulse inline-block h-1 w-1 rounded-full",
+                          status.pulseClassName
+                        )}
+                      />
+                      {status.label}
+                    </span>
+                  </div>
+                )
+              })()}
+
               {/* Eco score ring */}
               <div
                 className="flex items-center gap-4 rounded-xl p-4"
@@ -837,12 +1439,6 @@ export function SupplyChainGraph() {
                     <br />
                     impact score
                   </p>
-                  {selectedMfr.isCurrent && (
-                    <span className="mt-2 inline-flex items-center gap-1 rounded border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300">
-                      <span className="eco-pulse inline-block h-1 w-1 rounded-full bg-emerald-400" />
-                      ACTIVE
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -956,10 +1552,7 @@ export function SupplyChainGraph() {
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedMfr.certifications.map((cert) => (
-                      <span
-                        key={cert}
-                        className="rounded-md border border-indigo-400/25 bg-indigo-400/[0.07] px-2 py-1 text-[10px] font-medium text-indigo-300"
-                      >
+                      <span key={cert} className="dashboard-chip-accent">
                         {CERT_LABELS[cert] ?? cert}
                       </span>
                     ))}
@@ -985,9 +1578,17 @@ export function SupplyChainGraph() {
 
           {!selectedMfr && (
             <div className="flex-1 px-4 pb-4">
-              <div className="rounded-xl border border-indigo-400/[0.12] bg-indigo-500/[0.06] p-4">
+              <div
+                className="rounded-xl border p-4"
+                style={{
+                  background:
+                    "color-mix(in oklab, var(--primary) 8%, rgba(10,10,18,0.94))",
+                  borderColor:
+                    "color-mix(in oklab, var(--primary) 16%, transparent)",
+                }}
+              >
                 <p className="text-xs leading-relaxed text-white/50">
-                  {(selectedNode.data as BaseNodeData).baseType === "product"
+                  {selectedBaseNode?.kind === "product"
                     ? "End product node. Click connected component or manufacturer nodes to explore the supply chain."
                     : "Intermediate component. Two alternative manufacturers supply this material."}
                 </p>
@@ -1005,94 +1606,165 @@ export function SupplyChainGraph() {
 // ---------------------------------------------------------------------------
 
 function NodeCard({
+  isDragging,
   node,
   isSelected,
   isHovered,
+  motionIndex,
 }: {
-  node: GraphNode
+  isDragging: boolean
+  node: GraphNodeState
   isSelected: boolean
   isHovered: boolean
+  motionIndex: number
 }) {
   const d = node.data
 
-  if (d.nodeKind === "base" && d.baseType === "product") {
+  if (d.kind === "product") {
     return (
       <div
-        className="relative flex h-full w-full flex-col items-center justify-center rounded-full"
+        className={cn(
+          "relative flex h-full w-full flex-col items-center overflow-hidden rounded-[20px] px-3 pt-3.5 pb-4",
+          isDragging ? "" : "node-idle-float"
+        )}
         style={{
+          animationDelay: `${motionIndex * 0.4}s`,
           background:
-            "radial-gradient(circle at 40% 35%, rgba(99,102,241,0.22), rgba(10,10,24,0.95))",
-          border: `1.5px solid ${isSelected ? "rgba(139,92,246,0.8)" : isHovered ? "rgba(99,102,241,0.4)" : "rgba(99,102,241,0.2)"}`,
+            "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 6%, rgba(10,10,20,0.92)), rgba(10,10,20,0.9) 46%, rgba(8,8,14,0.96) 100%)",
+          border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 42%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 24%, transparent)" : "rgba(255,255,255,0.07)"}`,
           boxShadow: isSelected
-            ? "0 0 0 3px rgba(139,92,246,0.15), 0 0 40px rgba(99,102,241,0.35), inset 0 1px 0 rgba(255,255,255,0.08)"
+            ? "0 14px 30px rgba(0,0,0,0.42), 0 0 0 1px color-mix(in oklab, var(--primary) 14%, transparent), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -12px 22px rgba(0,0,0,0.18)"
             : isHovered
-              ? "0 0 25px rgba(99,102,241,0.2), inset 0 1px 0 rgba(255,255,255,0.05)"
-              : "0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)",
+              ? "0 10px 22px rgba(0,0,0,0.38), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 18px rgba(0,0,0,0.16)"
+              : "0 4px 16px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -10px 16px rgba(0,0,0,0.14)",
           transition: "border-color 0.3s, box-shadow 0.3s",
         }}
       >
+        <div
+          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent)",
+            opacity: isSelected ? 0.82 : isHovered ? 0.58 : 0.38,
+          }}
+        />
+        <div
+          className="node-surface-drift pointer-events-none absolute inset-0 rounded-[20px]"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
+          }}
+        />
         {/* Pulse ring */}
         {isSelected && (
           <div
-            className="eco-pulse absolute inset-0 rounded-full"
+            className="eco-pulse absolute inset-[2px] rounded-[18px]"
             style={{
-              border: "1.5px solid rgba(139,92,246,0.25)",
-              transform: "scale(1.12)",
+              border:
+                "1px solid color-mix(in oklab, var(--primary) 12%, transparent)",
+              transform: "scale(1.02)",
             }}
           />
         )}
-        <div
-          className="mb-1.5 rounded-full p-2"
-          style={{
-            background: "rgba(99,102,241,0.15)",
-            border: "1px solid rgba(99,102,241,0.25)",
-          }}
-        >
-          <HugeiconsIcon
-            icon={Leaf01Icon}
-            className="h-4 w-4 text-indigo-400"
-            strokeWidth={1.8}
-          />
+        <div className="text-[9px] tracking-[0.18em] text-white/30 uppercase">
+          Product
         </div>
-        <p className="px-2 text-center text-[11px] leading-tight font-semibold text-white/85">
-          {d.label}
-        </p>
-        <p className="mt-0.5 text-[9px] text-white/30">{d.subtitle}</p>
+        <div className="mt-2 flex flex-1 flex-col items-center justify-center">
+          <div
+            className={cn(
+              "mb-2 rounded-lg p-2",
+              isSelected || isHovered ? "emblem-pulse" : ""
+            )}
+            style={{
+              background: "color-mix(in oklab, var(--primary) 14%, transparent)",
+              border:
+                "1px solid color-mix(in oklab, var(--primary) 24%, transparent)",
+            }}
+          >
+            <HugeiconsIcon
+              icon={Leaf01Icon}
+              className="h-4 w-4 text-white/80"
+              strokeWidth={1.8}
+            />
+          </div>
+          <p className="px-2 text-center text-xs leading-tight font-semibold text-white/88">
+            {d.label}
+          </p>
+          <p className="mt-1 text-[10px] text-white/30">{d.subtitle}</p>
+        </div>
       </div>
     )
   }
 
-  if (d.nodeKind === "base" && d.baseType === "component") {
+  if (d.kind === "component") {
     return (
       <div
-        className="relative flex h-full w-full items-center gap-2.5 overflow-hidden rounded-xl px-3"
+        className={cn(
+          "relative flex h-full w-full items-center gap-2.5 overflow-hidden rounded-xl px-3",
+          isDragging ? "" : "node-idle-float"
+        )}
         style={{
-          background: "rgba(10,10,20,0.88)",
-          border: `1px solid ${isSelected ? "rgba(96,165,250,0.6)" : isHovered ? "rgba(96,165,250,0.25)" : "rgba(255,255,255,0.07)"}`,
+          animationDelay: `${motionIndex * 0.4}s`,
+          background: isSelected
+            ? "linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 5%, rgba(10,10,18,0.88)), rgba(10,10,18,0.84) 42%, rgba(8,8,14,0.9) 100%)"
+            : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 16%, transparent 22%), linear-gradient(180deg, rgba(10,10,18,0.76), rgba(10,10,18,0.72) 44%, rgba(8,8,14,0.82) 100%)",
+          border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 40%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.07)"}`,
           boxShadow: isSelected
-            ? "0 0 0 2px rgba(96,165,250,0.12), 0 0 24px rgba(59,130,246,0.2)"
-            : "0 4px 16px rgba(0,0,0,0.4)",
+            ? "0 12px 24px rgba(0,0,0,0.34), 0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -10px 18px rgba(0,0,0,0.14)"
+            : isHovered
+              ? "0 8px 18px rgba(0,0,0,0.3), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -8px 14px rgba(0,0,0,0.12)"
+              : "0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -8px 14px rgba(0,0,0,0.1)",
           transition: "border-color 0.25s, box-shadow 0.25s",
         }}
       >
+        <div
+          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
+            opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.38,
+          }}
+        />
+        <div
+          className="node-surface-drift pointer-events-none absolute inset-0 rounded-xl"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
+          }}
+        />
         {/* Left accent stripe */}
         <div
           className="absolute top-3 bottom-3 left-0 w-[2px] rounded-full"
           style={{
             background:
-              "linear-gradient(180deg, rgba(96,165,250,0.8), rgba(59,130,246,0.3))",
+              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 82%, white 6%), color-mix(in oklab, var(--accent) 46%, transparent))",
           }}
         />
         <div
-          className="flex-shrink-0 rounded-lg p-1.5"
+          className={cn(
+            "absolute top-3 bottom-3 left-0 w-[2px] rounded-full",
+            isSelected || isHovered ? "focus-beacon" : ""
+          )}
           style={{
-            background: "rgba(59,130,246,0.1)",
-            border: "1px solid rgba(59,130,246,0.2)",
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.18), color-mix(in oklab, var(--primary) 68%, transparent), transparent)",
+            opacity: isSelected ? 0.8 : isHovered ? 0.56 : 0,
+          }}
+        />
+        <div
+          className={cn(
+            "flex-shrink-0 rounded-lg p-1.5",
+            isSelected || isHovered ? "emblem-pulse" : ""
+          )}
+          style={{
+            background: "color-mix(in oklab, var(--primary) 10%, transparent)",
+            border:
+              "1px solid color-mix(in oklab, var(--primary) 18%, transparent)",
           }}
         >
           <HugeiconsIcon
             icon={PuzzleIcon}
-            className="h-4 w-4 text-blue-400"
+            className="h-4 w-4 text-white/80"
             strokeWidth={1.8}
           />
         </div>
@@ -1108,25 +1780,50 @@ function NodeCard({
     )
   }
 
-  if (d.nodeKind === "manufacturer") {
+  if (d.kind === "manufacturer") {
     const eco = getEcoConfig(d.ecoScore)
+    const status = getManufacturerStatusPresentation(d.isCurrent)
     return (
       <div
-        className="relative flex h-full w-full flex-col justify-between overflow-hidden rounded-xl p-3"
+        className={cn(
+          "relative flex h-full w-full flex-col justify-between overflow-hidden rounded-xl p-3",
+          isDragging ? "" : "node-idle-float"
+        )}
         style={{
-          background: "rgba(8,8,16,0.92)",
-          border: `1px solid ${isSelected ? eco.color : isHovered ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.07)"}`,
+          animationDelay: `${motionIndex * 0.4}s`,
+          background: isSelected
+            ? "linear-gradient(180deg, rgba(255,255,255,0.038), rgba(255,255,255,0.01) 16%, transparent 20%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 4%, rgba(8,8,16,0.94)), rgba(8,8,16,0.94) 48%, rgba(6,6,12,0.98) 100%)"
+            : "linear-gradient(180deg, rgba(255,255,255,0.024), rgba(255,255,255,0.008) 16%, transparent 20%), linear-gradient(180deg, rgba(8,8,16,0.94), rgba(8,8,16,0.92) 48%, rgba(6,6,12,0.98) 100%)",
+          border: `1px solid ${isSelected ? eco.color : isHovered ? "color-mix(in oklab, var(--accent) 18%, transparent)" : "rgba(255,255,255,0.07)"}`,
           boxShadow: isSelected
-            ? `0 0 0 1px rgba(0,0,0,0.5), ${eco.glow}, 0 16px 40px rgba(0,0,0,0.5)`
-            : "0 4px 20px rgba(0,0,0,0.5)",
+            ? "0 14px 30px rgba(0,0,0,0.46), 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -12px 22px rgba(0,0,0,0.2)"
+            : isHovered
+              ? "0 10px 22px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -10px 16px rgba(0,0,0,0.14)"
+              : "0 4px 16px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.02), inset 0 -10px 16px rgba(0,0,0,0.12)",
           transition: "border-color 0.25s, box-shadow 0.25s",
         }}
       >
+        <div
+          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)",
+            opacity: isSelected ? 0.72 : isHovered ? 0.46 : 0.3,
+          }}
+        />
+        <div
+          className="node-surface-drift pointer-events-none absolute inset-0 rounded-xl"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.03), transparent 34%)",
+            }}
+        />
         {/* Subtle inner gradient */}
         <div
           className="pointer-events-none absolute inset-0 rounded-xl"
           style={{
-            background: `radial-gradient(ellipse at top left, ${eco.bg}, transparent 65%)`,
+            background:
+              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 3%, transparent), transparent 38%)",
           }}
         />
 
@@ -1139,19 +1836,22 @@ function NodeCard({
               {d.location.city}, {d.location.country}
             </p>
           </div>
-          {d.isCurrent && (
+          <span
+            className="flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold tracking-wide"
+            style={{
+              background: status.badgeBackground,
+              color: status.badgeText,
+              border: `1px solid ${status.badgeBorder}`,
+            }}
+          >
             <span
-              className="flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold tracking-wide"
-              style={{
-                background: "rgba(52,211,153,0.1)",
-                color: "#34d399",
-                border: "1px solid rgba(52,211,153,0.22)",
-              }}
-            >
-              <span className="eco-pulse inline-block h-1 w-1 rounded-full bg-emerald-400" />
-              ACTIVE
-            </span>
-          )}
+              className={cn(
+                "eco-pulse inline-block h-1 w-1 rounded-full",
+                status.pulseClassName
+              )}
+            />
+            {status.label}
+          </span>
         </div>
 
         <div
