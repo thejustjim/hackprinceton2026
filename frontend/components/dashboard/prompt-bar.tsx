@@ -13,6 +13,7 @@ interface PromptBarProps extends ComponentProps<"div"> {
   onSubmit: () => void
   onValueChange: (value: string) => void
   pending?: boolean
+  placeholder?: string
   value: string
 }
 
@@ -22,6 +23,7 @@ export function PromptBar({
   onSubmit,
   onValueChange,
   pending = false,
+  placeholder,
   value,
   ...props
 }: PromptBarProps) {
@@ -45,7 +47,7 @@ export function PromptBar({
           <Input
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
-            placeholder="Describe the scenario edit you want to apply"
+            placeholder={placeholder ?? "Describe the scenario edit you want to apply"}
             className="h-11 flex-1 rounded-xl border-white/8 bg-black/22 shadow-none"
             disabled={pending}
           />

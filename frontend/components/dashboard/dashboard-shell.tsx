@@ -27,6 +27,7 @@ interface DashboardShellProps {
   onUseDemo: () => void
   promptError?: string | null
   promptPending?: boolean
+  promptPlaceholder?: string
   promptValue: string
   scenario: SupplyScenario | null
   scenarioSource: "demo" | "search" | null
@@ -100,6 +101,7 @@ export function DashboardShell({
   onUseDemo,
   promptError,
   promptPending,
+  promptPlaceholder,
   promptValue,
   scenario,
   scenarioSource,
@@ -240,6 +242,7 @@ export function DashboardShell({
               onSelectNode={handleSelectNode}
               promptError={promptError}
               promptPending={promptPending}
+              promptPlaceholder={promptPlaceholder}
               promptValue={promptValue}
               scenario={scenario}
               selectedNodeId={selectedNodeId}

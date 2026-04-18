@@ -40,7 +40,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     isHandoff ? "loading" : "idle"
   )
   const [error, setError] = useState<string | null>(null)
-  const [promptValue, setPromptValue] = useState(() =>
+  const [promptValue, setPromptValue] = useState("")
+  const [promptPlaceholder, setPromptPlaceholder] = useState(() =>
     startsInDemo ? createDefaultPrompt(sampleSupplyScenario) : ""
   )
   const [promptPending, setPromptPending] = useState(false)
@@ -87,7 +88,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       const nextScenario = apiResultToScenario(response, scenarioCsv)
       setScenario(nextScenario)
       setScenarioSource("search")
-      setPromptValue(createDefaultPrompt(nextScenario))
+      setPromptValue("")
+      setPromptPlaceholder(createDefaultPrompt(nextScenario))
       setStatus("idle")
     } catch (caught) {
       const message =
@@ -126,7 +128,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       queueMicrotask(() => {
         setScenario(sampleSupplyScenario)
         setScenarioSource("demo")
-        setPromptValue(createDefaultPrompt(sampleSupplyScenario))
+        setPromptValue("")
+        setPromptPlaceholder(createDefaultPrompt(sampleSupplyScenario))
         setStatus("idle")
         setError(null)
         setPromptError(null)
@@ -152,7 +155,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setError(null)
     setScenario(sampleSupplyScenario)
     setScenarioSource("demo")
-    setPromptValue(createDefaultPrompt(sampleSupplyScenario))
+    setPromptValue("")
+    setPromptPlaceholder(createDefaultPrompt(sampleSupplyScenario))
     setPromptError(null)
   }, [])
 
@@ -209,6 +213,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       onUseDemo={handleUseDemo}
       promptError={promptError}
       promptPending={promptPending}
+      promptPlaceholder={promptPlaceholder}
       promptValue={promptValue}
       scenario={scenario}
       scenarioSource={scenarioSource}

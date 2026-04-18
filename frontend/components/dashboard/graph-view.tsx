@@ -18,6 +18,7 @@ interface GraphViewProps {
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   promptError?: string | null
   promptPending?: boolean
+  promptPlaceholder?: string
   promptValue: string
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
@@ -33,6 +34,7 @@ export function GraphView({
   onSelectNode,
   promptError,
   promptPending,
+  promptPlaceholder,
   promptValue,
   scenario,
   selectedNodeId,
@@ -96,6 +98,7 @@ export function GraphView({
             onSubmit={onPromptSubmit}
             onValueChange={onPromptChange}
             pending={promptPending}
+            placeholder={promptPlaceholder}
             value={promptValue}
           />
         </div>

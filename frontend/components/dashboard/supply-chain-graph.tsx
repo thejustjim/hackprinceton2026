@@ -222,44 +222,118 @@ function buildCompactGraphNodes(
   }
 
   const config = getLayoutConfig(viewport, nodes)
-  const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
+  const crowding = getGraphCrowdingScore(nodes, viewport)
   const anchorPositions = new Map<string, { x: number; y: number }>()
-  const productAnchor = { ...productNode.position }
-
-  anchorPositions.set(productNode.id, productAnchor)
-
-  nodes.forEach((node) => {
-    if (node.data.kind !== "component") {
-      return
-    }
-
-    anchorPositions.set(node.id, {
-      x:
-        productAnchor.x +
-        (node.position.x - productAnchor.x) * config.componentPull,
-      y:
-        productAnchor.y +
-        (node.position.y - productAnchor.y) * config.componentPull,
+  const productAnchor = {
+    x: productNode.position.x,
+    y: productNode.position.y,
+  }
+  const productCenter = getNodeCenter(productNode, productAnchor)
+  const productSize = getNodeSize(productNode)
+  const components = nodes
+    .filter((node) => node.data.kind === "component")
+    .sort((left, right) => {
+      const leftAngle = Math.atan2(
+        left.position.y - productAnchor.y,
+        left.position.x - productAnchor.x
+      )
+      const rightAngle = Math.atan2(
+        right.position.y - productAnchor.y,
+        right.position.x - productAnchor.x
+      )
+      return leftAngle - rightAngle
     })
-  })
+  const manufacturersByComponent = new Map<string, GraphNodeState[]>()
 
   nodes.forEach((node) => {
     if (node.data.kind !== "manufacturer") {
       return
     }
 
-    const sourceComponent = nodeById.get(node.data.componentId)
-    const sourceComponentPosition = sourceComponent?.position ?? productAnchor
-    const compactComponentPosition =
-      anchorPositions.get(node.data.componentId) ?? sourceComponentPosition
+    const bucket = manufacturersByComponent.get(node.data.componentId)
+    if (bucket) {
+      bucket.push(node)
+      return
+    }
 
-    anchorPositions.set(node.id, {
-      x:
-        compactComponentPosition.x +
-        (node.position.x - sourceComponentPosition.x) * config.manufacturerPull,
-      y:
-        compactComponentPosition.y +
-        (node.position.y - sourceComponentPosition.y) * config.manufacturerPull,
+    manufacturersByComponent.set(node.data.componentId, [node])
+  })
+
+  manufacturersByComponent.forEach((manufacturerNodes) => {
+    manufacturerNodes.sort((left, right) => {
+      if (left.data.kind !== "manufacturer" || right.data.kind !== "manufacturer") {
+        return 0
+      }
+
+      const statusDelta = Number(right.data.isCurrent) - Number(left.data.isCurrent)
+      if (statusDelta !== 0) {
+        return statusDelta
+      }
+
+      return left.data.ecoScore - right.data.ecoScore
+    })
+  })
+
+  const componentCount = Math.max(components.length, 1)
+  const width = viewport?.width ?? 1200
+  const height = viewport?.height ?? 900
+  const viewportScale = clamp(Math.min(width, height) / 980, 0.82, 1.12)
+  const componentRingRadius =
+    (138 +
+      componentCount * 24 +
+      crowding * 56 +
+      Math.max(productSize.w, productSize.h) * 0.08) *
+    viewportScale
+  const manufacturerBaseRadius =
+    componentRingRadius + (118 + crowding * 62 + componentCount * 8) * viewportScale
+  const sectorAngle = (Math.PI * 2) / componentCount
+  const manufacturerAngleStep = clamp(0.24 - crowding * 0.05, 0.14, 0.26)
+  const maxSpread = clamp(sectorAngle * 0.86, 0.48, 1.24)
+
+  anchorPositions.set(productNode.id, productAnchor)
+
+  components.forEach((component, componentIndex) => {
+    const componentAngle = (componentIndex / componentCount) * Math.PI * 2 - Math.PI / 2
+    const componentNodeSize = getNodeSize(component)
+    const componentCenter = {
+      x: productCenter.x + Math.cos(componentAngle) * componentRingRadius,
+      y: productCenter.y + Math.sin(componentAngle) * componentRingRadius,
+    }
+    const componentAnchor = {
+      x: componentCenter.x - componentNodeSize.w / 2,
+      y: componentCenter.y - componentNodeSize.h / 2,
+    }
+    const manufacturers = manufacturersByComponent.get(component.id) ?? []
+    const clampedSpread = Math.min(
+      maxSpread,
+      manufacturerAngleStep * Math.max(0, manufacturers.length - 1)
+    )
+
+    anchorPositions.set(component.id, componentAnchor)
+
+    manufacturers.forEach((manufacturer, manufacturerIndex) => {
+      const manufacturerSize = getNodeSize(manufacturer)
+      const localOffsetIndex = manufacturerIndex - (manufacturers.length - 1) / 2
+      const localAngle =
+        manufacturers.length <= 1
+          ? componentAngle
+          : componentAngle +
+            (manufacturers.length > 1
+              ? (localOffsetIndex / Math.max(manufacturers.length - 1, 1)) *
+                clampedSpread
+              : 0)
+      const radialJitter =
+        Math.abs(localOffsetIndex) * (14 + crowding * 10) * viewportScale
+      const manufacturerRadius = manufacturerBaseRadius + radialJitter
+      const manufacturerCenter = {
+        x: productCenter.x + Math.cos(localAngle) * manufacturerRadius,
+        y: productCenter.y + Math.sin(localAngle) * manufacturerRadius,
+      }
+
+      anchorPositions.set(manufacturer.id, {
+        x: manufacturerCenter.x - manufacturerSize.w / 2,
+        y: manufacturerCenter.y - manufacturerSize.h / 2,
+      })
     })
   })
 
