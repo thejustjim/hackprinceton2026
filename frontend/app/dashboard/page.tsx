@@ -1,80 +1,24 @@
-"use client"
+import { cookies } from "next/headers"
 
-import { useCallback, useState } from "react"
-
-import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import type { UploadPanelStatus } from "@/components/dashboard/upload-panel"
-import { search } from "@/lib/api"
-import { apiResultToScenario } from "@/lib/api-to-scenario"
-import { parseManufacturersCsv } from "@/lib/csv-to-search"
+import { DashboardPage } from "@/components/dashboard/dashboard-page"
 import {
-  sampleSupplyScenario,
-  type SupplyScenario,
-} from "@/lib/supply-chain-scenario"
+  DASHBOARD_ENTRY_COOKIE,
+  DASHBOARD_ENTRY_MODE_DEMO,
+} from "@/lib/dashboard-entry"
 
-export default function Page() {
-  const [scenario, setScenario] = useState<SupplyScenario | null>(null)
-  const [status, setStatus] = useState<UploadPanelStatus>("idle")
-  const [error, setError] = useState<string | null>(null)
+interface DashboardPageProps {
+  searchParams: Promise<{
+    demo?: string
+  }>
+}
 
-  const handleUseDemo = useCallback(() => {
-    setStatus("idle")
-    setError(null)
-    setScenario(sampleSupplyScenario)
-  }, [])
+export default async function Page({ searchParams }: DashboardPageProps) {
+  const params = await searchParams
+  const cookieStore = await cookies()
+  const startsInDemo =
+    params.demo === "1" ||
+    cookieStore.get(DASHBOARD_ENTRY_COOKIE)?.value ===
+      DASHBOARD_ENTRY_MODE_DEMO
 
-  const handleReset = useCallback(() => {
-    setStatus("idle")
-    setError(null)
-  }, [])
-
-  const handleFile = useCallback(async (file: File) => {
-    setStatus("loading")
-    setError(null)
-
-    let text: string
-    try {
-      text = await file.text()
-    } catch {
-      setStatus("error")
-      setError("Could not read the file.")
-      return
-    }
-
-    const parsed = parseManufacturersCsv(text)
-    if (!parsed.ok) {
-      setStatus("error")
-      setError(parsed.error)
-      return
-    }
-
-    const row = parsed.row
-    try {
-      const response = await search({
-        product: row.product,
-        quantity: row.quantity,
-        destination: row.destination,
-        countries: [],
-        transport_mode: "sea",
-      })
-      setScenario(apiResultToScenario(response, row))
-      setStatus("idle")
-    } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : "Unknown error during search."
-      setStatus("error")
-      setError(message)
-    }
-  }, [])
-
-  return (
-    <DashboardShell
-      error={error}
-      onFile={handleFile}
-      onReset={handleReset}
-      onUseDemo={handleUseDemo}
-      scenario={scenario}
-      status={status}
-    />
-  )
+  return <DashboardPage startsInDemo={startsInDemo} />
 }

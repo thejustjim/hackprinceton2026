@@ -10,6 +10,7 @@ import {
   type UploadPanelStatus,
 } from "@/components/dashboard/upload-panel"
 import { GreenChainLogo } from "@/components/green-chain-logo"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   type SupplyScenario,
@@ -23,6 +24,7 @@ interface DashboardShellProps {
   onReset: () => void
   onUseDemo: () => void
   scenario: SupplyScenario | null
+  scenarioSource: "demo" | "search" | null
   status: UploadPanelStatus
 }
 
@@ -45,6 +47,43 @@ function createPinnedManufacturerByComponent(scenario: SupplyScenario) {
   )
 }
 
+function createBestEcoManufacturerByComponent(scenario: SupplyScenario) {
+  return Object.fromEntries(
+    scenario.components
+      .map((component) => {
+        const manufacturers = scenario.manufacturers.filter(
+          (manufacturer) => manufacturer.componentId === component.id
+        )
+        const bestManufacturer = manufacturers.reduce<
+          (typeof manufacturers)[number] | null
+        >((best, manufacturer) => {
+          if (!best) {
+            return manufacturer
+          }
+
+          if (manufacturer.ecoScore < best.ecoScore) {
+            return manufacturer
+          }
+
+          if (
+            manufacturer.ecoScore === best.ecoScore &&
+            manufacturer.isCurrent &&
+            !best.isCurrent
+          ) {
+            return manufacturer
+          }
+
+          return best
+        }, null)
+
+        return bestManufacturer
+          ? ([component.id, bestManufacturer.id] as const)
+          : null
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry))
+  )
+}
+
 export function DashboardShell({
   error,
   onFile,
@@ -52,6 +91,7 @@ export function DashboardShell({
   onReset,
   onUseDemo,
   scenario,
+  scenarioSource,
   status,
 }: DashboardShellProps) {
   const [selectedNodeId, setSelectedNodeId] =
@@ -72,6 +112,10 @@ export function DashboardShell({
       ...pinnedManufacturerOverrides,
     }),
     [basePinnedManufacturerByComponent, pinnedManufacturerOverrides]
+  )
+  const bestEcoManufacturerByComponent = useMemo(
+    () => (scenario ? createBestEcoManufacturerByComponent(scenario) : {}),
+    [scenario]
   )
   const manufacturerComponentById = useMemo(
     () =>
@@ -123,9 +167,20 @@ export function DashboardShell({
                 className="h-7 w-auto sm:h-8 md:h-9"
               />
             </Link>
-            <p className="min-w-0 truncate text-base font-medium text-white/85">
-              {scenario ? scenario.title : "Upload a CSV to begin"}
-            </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate text-base font-medium text-white/85">
+                {scenario ? scenario.title : "Upload a CSV to begin"}
+              </p>
+              {scenarioSource === "demo" ? (
+                <Badge variant="outline" className="shrink-0">
+                  Demo
+                </Badge>
+              ) : scenarioSource === "search" ? (
+                <Badge variant="outline" className="shrink-0">
+                  Live search
+                </Badge>
+              ) : null}
+            </div>
             <p className="text-sm text-muted-foreground sm:max-w-md sm:border-l sm:border-border/70 sm:pl-5">
               Interactive supply chain graph · geographic intelligence
             </p>
@@ -155,12 +210,15 @@ export function DashboardShell({
           onFile={onFile}
           onReset={onReset}
           onUseDemo={onUseDemo}
+          scenarioSource={scenarioSource}
+          scenarioTitle={scenario?.title ?? null}
           status={status}
         />
 
         {scenario ? (
           <section className="grid min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)] lg:grid-rows-1">
             <GraphView
+              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
               className="h-full min-h-0"
               hoveredNodeId={hoveredNodeId}
               onHoverNode={handleHoverNode}
@@ -169,6 +227,7 @@ export function DashboardShell({
               selectedNodeId={selectedNodeId}
             />
             <GlobeView
+              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
               className="h-full min-h-0"
               hoveredNodeId={hoveredNodeId}
               onHoverNode={handleHoverNode}

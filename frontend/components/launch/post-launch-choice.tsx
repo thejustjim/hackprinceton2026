@@ -42,6 +42,7 @@ import {
   type ScenarioCsvPreview,
   validateScenarioCsvFile,
 } from "@/lib/scenario-csv"
+import { persistDemoDashboardEntry } from "@/lib/dashboard-entry"
 import { cn } from "@/lib/utils"
 
 type DatasetIntakeResponse = {
@@ -195,9 +196,10 @@ export function PostLaunchChoice() {
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
                 Upload a scenario CSV for future dataset processing, or continue
-                straight into the existing demo dashboard. The upload path in
-                this version accepts and stores the file without generating a
-                new dashboard yet.
+                straight into the existing demo dashboard with the sample
+                scenario already loaded. The upload path in this version
+                accepts and stores the file without generating a new dashboard
+                yet.
               </p>
             </div>
           </div>
@@ -214,7 +216,10 @@ export function PostLaunchChoice() {
               </a>
             </Button>
             <Button asChild>
-              <Link href="/dashboard">
+              <Link
+                href="/dashboard"
+                onClick={() => persistDemoDashboardEntry()}
+              >
                 <HugeiconsIcon
                   icon={MapsGlobal01Icon}
                   strokeWidth={2}
@@ -570,7 +575,10 @@ export function PostLaunchChoice() {
 
               <CardFooter className="border-t border-border/70 py-5">
                 <Button asChild className="w-full">
-                  <Link href="/dashboard">
+                  <Link
+                    href="/dashboard"
+                    onClick={() => persistDemoDashboardEntry()}
+                  >
                     <HugeiconsIcon
                       icon={ArrowRight01Icon}
                       strokeWidth={2}

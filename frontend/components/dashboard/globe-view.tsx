@@ -5,6 +5,7 @@ import { MapsGlobal01Icon, Route03Icon } from "@hugeicons/core-free-icons"
 
 import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
 import { Button } from "@/components/ui/button"
+import { getEcoDotStyles, getEcoSelectionStyles } from "@/lib/eco-visuals"
 import {
   type SupplyScenario,
   type SupplyScenarioComponentNode,
@@ -14,6 +15,7 @@ import {
 import { cn } from "@/lib/utils"
 
 interface GlobeViewProps {
+  bestEcoManufacturerByComponent: Record<string, string>
   className?: string
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
@@ -84,35 +86,16 @@ function getManufacturerStatusStyles(isCurrent: boolean) {
       }
 }
 
-function getEcoDotStyles(score: number) {
-  if (score < 40) {
-    return {
-      background: "#34d399",
-      shadow: "0 0 10px rgba(52,211,153,0.34)",
-    }
-  }
-
-  if (score < 60) {
-    return {
-      background: "#fbbf24",
-      shadow: "0 0 10px rgba(251,191,36,0.34)",
-    }
-  }
-
-  return {
-    background: "#f87171",
-    shadow: "0 0 10px rgba(248,113,113,0.34)",
-  }
-}
-
 function ManufacturerRow({
   isFocused,
+  isMostSustainable,
   isPinned,
   manufacturer,
   onHoverNode,
   onSelectNode,
 }: {
   isFocused: boolean
+  isMostSustainable: boolean
   isPinned: boolean
   manufacturer: SupplyScenarioManufacturerNode
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
@@ -120,6 +103,7 @@ function ManufacturerRow({
 }) {
   const statusStyles = getManufacturerStatusStyles(manufacturer.isCurrent)
   const ecoDotStyles = getEcoDotStyles(manufacturer.ecoScore)
+  const ecoSelectionStyles = getEcoSelectionStyles(manufacturer.ecoScore)
 
   return (
     <button
@@ -130,17 +114,22 @@ function ManufacturerRow({
       className={cn(
         "group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
         isFocused
-          ? "bg-white/[0.07]"
+          ? ""
           : isPinned
-            ? "bg-white/[0.05]"
+            ? ""
             : manufacturer.isCurrent
               ? "bg-transparent hover:bg-white/[0.04]"
               : "bg-transparent hover:bg-white/[0.03]"
       )}
       style={{
+        background: isFocused
+          ? ecoSelectionStyles.surfaceStrong
+          : isPinned
+            ? ecoSelectionStyles.surface
+            : undefined,
         boxShadow:
           isFocused || isPinned
-            ? `inset 2px 0 0 ${isFocused ? "color-mix(in oklab, var(--primary) 48%, transparent)" : "color-mix(in oklab, var(--primary) 28%, transparent)"}`
+            ? `inset 2px 0 0 ${ecoSelectionStyles.edge}${isFocused ? `, ${ecoSelectionStyles.glow}` : ""}`
             : "none",
       }}
     >
@@ -167,8 +156,27 @@ function ManufacturerRow({
       >
         {manufacturer.isCurrent ? "Current" : "Alternate"}
       </span>
+      {isMostSustainable ? (
+        <span
+          className="hidden rounded-full border px-2 py-1 text-[10px] font-medium md:inline-flex"
+          style={{
+            background: ecoSelectionStyles.surface,
+            borderColor: ecoSelectionStyles.edge,
+            color: ecoSelectionStyles.accent,
+          }}
+        >
+          Most sustainable
+        </span>
+      ) : null}
       {isPinned ? (
-        <span className="hidden rounded-full border border-white/12 bg-white/[0.05] px-2 py-1 text-[10px] font-medium text-white/58 md:inline-flex">
+        <span
+          className="hidden rounded-full border px-2 py-1 text-[10px] font-medium md:inline-flex"
+          style={{
+            background: ecoSelectionStyles.surface,
+            borderColor: ecoSelectionStyles.edge,
+            color: ecoSelectionStyles.accent,
+          }}
+        >
           Selected
         </span>
       ) : null}
@@ -180,6 +188,7 @@ function ManufacturerRow({
 }
 
 export function GlobeView({
+  bestEcoManufacturerByComponent,
   className,
   hoveredNodeId,
   onHoverNode,
@@ -246,7 +255,7 @@ export function GlobeView({
           className="relative flex min-h-[27rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] md:min-h-[31rem]"
           style={{
             background:
-              "radial-gradient(circle at 50% 50%, color-mix(in oklab, var(--primary) 5%, transparent), transparent 36%), radial-gradient(circle at 50% 50%, rgba(255,255,255,0.012), transparent 52%), linear-gradient(180deg, rgba(7,7,12,0.98), rgba(5,5,8,1))",
+              "radial-gradient(circle at 50% 46%, color-mix(in oklab, var(--primary) 10%, transparent), transparent 34%), radial-gradient(circle at 48% 52%, color-mix(in oklab, var(--foreground) 6%, transparent), transparent 52%), linear-gradient(180deg, rgba(6,10,14,0.98), rgba(4,7,10,1))",
           }}
         >
           <div className="pointer-events-none absolute inset-0">
@@ -254,7 +263,7 @@ export function GlobeView({
               className="absolute inset-0"
               style={{
                 background:
-                  "radial-gradient(circle at 8% 12%, rgba(255,255,255,0.022), transparent 18%), radial-gradient(circle at 91% 13%, rgba(255,255,255,0.02), transparent 16%), radial-gradient(circle at 10% 88%, rgba(255,255,255,0.018), transparent 16%), radial-gradient(circle at 89% 87%, rgba(255,255,255,0.016), transparent 16%)",
+                  "radial-gradient(circle at 8% 12%, rgba(255,255,255,0.02), transparent 18%), radial-gradient(circle at 91% 13%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 16%), radial-gradient(circle at 10% 88%, rgba(255,255,255,0.014), transparent 16%), radial-gradient(circle at 89% 87%, color-mix(in oklab, var(--foreground) 8%, transparent), transparent 16%)",
               }}
             />
             {CORNER_STAR_DOTS.map((star, index) => (
@@ -279,6 +288,7 @@ export function GlobeView({
           <div className="absolute inset-14 rounded-full border border-white/[0.06]" />
 
           <InteractiveGlobe
+            bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
             className="relative z-10"
             hoveredNodeId={hoveredNodeId}
             onHoverNode={onHoverNode}
@@ -295,9 +305,14 @@ export function GlobeView({
             Select a route or site to inspect the detail drawer in Supply Chain
             Graph.
           </div>
-          <span className="dashboard-chip-muted hidden sm:inline-flex">
-            {scenario.stats.currentRouteCount} current routes
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="hidden rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-medium text-white/74 sm:inline-flex">
+              Route color = eco score
+            </span>
+            <span className="dashboard-chip-muted hidden sm:inline-flex">
+              {scenario.stats.currentRouteCount} current routes
+            </span>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -305,9 +320,11 @@ export function GlobeView({
             <div>
               <p className="dashboard-section-label">Route Selector</p>
               <p className="mt-1 text-[11px] text-white/34">
-                Current = active route. Alternate = modeled fallback, not
-                another active choice. Click a manufacturer to keep that route
-                active for its component.
+                Only the active selected route for each component is drawn on
+                the globe. Arc captions stay component-first and follow that
+                active route. Current = default active route. Alternate =
+                modeled fallback. Click a manufacturer to switch the visible
+                route for its component.
               </p>
             </div>
             <span className="dashboard-chip-muted">Details in graph</span>
@@ -322,8 +339,17 @@ export function GlobeView({
               const currentManufacturer =
                 manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
                 manufacturers[0]
-              const componentDotStyles = currentManufacturer
-                ? getEcoDotStyles(currentManufacturer.ecoScore)
+              const activeManufacturer =
+                manufacturers.find(
+                  (manufacturer) =>
+                    pinnedManufacturerByComponent[component.id] ===
+                    manufacturer.id
+                ) ?? currentManufacturer
+              const componentDotStyles = activeManufacturer
+                ? getEcoDotStyles(activeManufacturer.ecoScore)
+                : null
+              const componentSelectionStyles = activeManufacturer
+                ? getEcoSelectionStyles(activeManufacturer.ecoScore)
                 : null
               const isFocusedComponent =
                 selectedComponentId === component.id ||
@@ -343,10 +369,10 @@ export function GlobeView({
                   )}
                   style={{
                     background: isFocusedComponent
-                      ? "linear-gradient(180deg, color-mix(in oklab, var(--primary) 10%, rgba(10,10,18,0.86)), rgba(10,10,18,0.74))"
-                      : "rgba(10,10,18,0.58)",
+                      ? `linear-gradient(180deg, ${componentSelectionStyles?.surfaceStrong ?? "rgba(255,255,255,0.06)"}, rgba(7,12,16,0.76))`
+                      : "rgba(7,12,16,0.58)",
                     boxShadow: isFocusedComponent
-                      ? "0 0 0 1px color-mix(in oklab, var(--primary) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.04)"
+                      ? `0 0 0 1px ${componentSelectionStyles?.edge ?? "rgba(255,255,255,0.12)"}, inset 0 1px 0 rgba(255,255,255,0.04), ${componentSelectionStyles?.glow ?? "none"}`
                       : "inset 0 1px 0 rgba(255,255,255,0.03)",
                   }}
                   onMouseEnter={() => onHoverNode(component.id)}
@@ -396,6 +422,9 @@ export function GlobeView({
                         const isPinnedManufacturer =
                           pinnedManufacturerByComponent[component.id] ===
                           manufacturer.id
+                        const isMostSustainableManufacturer =
+                          bestEcoManufacturerByComponent[component.id] ===
+                          manufacturer.id
 
                         return (
                           <div
@@ -406,6 +435,7 @@ export function GlobeView({
                           >
                             <ManufacturerRow
                               isFocused={isFocusedManufacturer}
+                              isMostSustainable={isMostSustainableManufacturer}
                               isPinned={isPinnedManufacturer}
                               manufacturer={manufacturer}
                               onHoverNode={(nodeId) =>

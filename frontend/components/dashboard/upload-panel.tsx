@@ -16,6 +16,8 @@ interface UploadPanelProps {
   onFile: (file: File) => void
   onReset: () => void
   onUseDemo: () => void
+  scenarioSource: "demo" | "search" | null
+  scenarioTitle: string | null
   status: UploadPanelStatus
 }
 
@@ -61,19 +63,31 @@ export function UploadPanel({
   onFile,
   onReset,
   onUseDemo,
+  scenarioSource,
+  scenarioTitle,
   status,
 }: UploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragActive, setIsDragActive] = useState(false)
+  const [isManuallyExpanded, setIsManuallyExpanded] = useState(false)
+  const isExpanded = !scenarioSource || status !== "idle" || isManuallyExpanded
 
   function openFilePicker() {
     if (status === "loading") return
     inputRef.current?.click()
   }
 
+  function handleUseDemoClick() {
+    setIsManuallyExpanded(false)
+    onUseDemo()
+  }
+
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
-    if (file) onFile(file)
+    if (file) {
+      setIsManuallyExpanded(false)
+      onFile(file)
+    }
     event.target.value = ""
   }
 
@@ -83,7 +97,10 @@ export function UploadPanel({
     if (status === "loading") return
 
     const file = event.dataTransfer.files?.[0]
-    if (file) onFile(file)
+    if (file) {
+      setIsManuallyExpanded(false)
+      onFile(file)
+    }
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
@@ -95,6 +112,67 @@ export function UploadPanel({
   function handleDragLeave(event: DragEvent<HTMLDivElement>) {
     event.preventDefault()
     setIsDragActive(false)
+  }
+
+  if (scenarioSource && status === "idle" && !isExpanded) {
+    const compactEyebrow =
+      scenarioSource === "demo" ? "Demo loaded" : "Scenario loaded"
+    const compactTitle =
+      scenarioSource === "demo"
+        ? `${scenarioTitle ?? "Sample scenario"} is already on screen`
+        : `${scenarioTitle ?? "Search results"} is already loaded`
+    const compactDescription =
+      scenarioSource === "demo"
+        ? "Keep the graph visible and open the uploader only when you want to replace the sample."
+        : "Open the uploader to run another CSV, or switch back to the demo sample."
+
+    return (
+      <section
+        className={cn(
+          "panel-surface flex flex-col gap-4 rounded-2xl px-4 py-4 lg:flex-row lg:items-center lg:justify-between",
+          className
+        )}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          hidden
+          onChange={handleFileInputChange}
+        />
+
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium tracking-[0.28em] text-white/40 uppercase">
+            {compactEyebrow}
+          </p>
+          <p className="mt-1 text-sm font-medium text-white/85">
+            {compactTitle}
+          </p>
+          <p className="mt-1 text-xs text-white/48">{compactDescription}</p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsManuallyExpanded(true)}
+          >
+            Open uploader
+          </Button>
+          {scenarioSource === "search" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleUseDemoClick}
+            >
+              Switch to demo
+            </Button>
+          ) : null}
+        </div>
+      </section>
+    )
   }
 
   return (
@@ -113,8 +191,8 @@ export function UploadPanel({
             Upload a CSV of your current product &amp; supplier
           </p>
           <p className="mt-1 text-xs text-white/48">
-            Required columns: product, destination, quantity, current_manufacturer,
-            current_country. One data row only.
+            Required columns: product, destination, quantity,
+            current_manufacturer, current_country. One data row only.
           </p>
         </div>
         {status === "error" ? (
@@ -127,6 +205,16 @@ export function UploadPanel({
           >
             <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
             Reset
+          </Button>
+        ) : scenarioSource ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsManuallyExpanded(false)}
+            className="rounded-full text-white/70 hover:bg-white/[0.05] hover:text-white"
+          >
+            Hide uploader
           </Button>
         ) : null}
       </div>
@@ -198,14 +286,20 @@ export function UploadPanel({
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onUseDemo}
-          disabled={status === "loading"}
-          className="text-xs text-white/55 underline-offset-4 transition-colors hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Or use demo data (sample Lint Roller scenario)
-        </button>
+        {scenarioSource === "demo" ? (
+          <span className="text-xs text-white/55">Demo scenario active</span>
+        ) : (
+          <button
+            type="button"
+            onClick={handleUseDemoClick}
+            disabled={status === "loading"}
+            className="text-xs text-white/55 underline-offset-4 transition-colors hover:text-white hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {scenarioSource === "search"
+              ? "Switch back to demo data"
+              : "Or use demo data (sample Lint Roller scenario)"}
+          </button>
+        )}
         <span className="font-mono text-[10px] tracking-[0.18em] text-white/30 uppercase">
           {status === "loading"
             ? "Running"

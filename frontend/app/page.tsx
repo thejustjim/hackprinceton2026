@@ -281,6 +281,14 @@ function DashboardLaunchOverlay({
             style={{ animationDelay: node.delay }}
           >
             <circle
+              className="landing-launch__node-aura"
+              cx={node.cx}
+              cy={node.cy}
+              fill="rgba(124,255,214,0.08)"
+              r="42"
+            />
+            <circle
+              className="landing-launch__node-aura landing-launch__node-aura--inner"
               cx={node.cx}
               cy={node.cy}
               fill="rgba(124,255,214,0.18)"
@@ -303,6 +311,8 @@ function DashboardLaunchOverlay({
         </div>
 
         <div className="relative mt-8 flex h-72 w-72 items-center justify-center md:h-80 md:w-80">
+          <div className="landing-launch__halo absolute inset-[0.85rem]" />
+          <div className="landing-launch__halo landing-launch__halo--mid absolute inset-[2.5rem]" />
           <svg className="absolute inset-0 h-full w-full" viewBox="0 0 256 256">
             <circle
               className="text-white/8"
@@ -329,10 +339,11 @@ function DashboardLaunchOverlay({
             />
           </svg>
 
+          <div className="landing-launch__halo landing-launch__halo--inner absolute inset-[4.9rem]" />
           <div className="absolute inset-10 rounded-full border border-white/8 bg-white/[0.02] backdrop-blur-2xl" />
-          <div className="absolute inset-[4.35rem] rounded-full bg-[radial-gradient(circle,_rgba(126,255,212,0.12),_rgba(12,18,19,0.02)_48%,_transparent_72%)]" />
+          <div className="landing-launch__core absolute inset-[4.35rem] rounded-full bg-[radial-gradient(circle,_rgba(126,255,212,0.12),_rgba(12,18,19,0.02)_48%,_transparent_72%)]" />
 
-          <div className="relative flex items-baseline gap-2">
+          <div className="landing-launch__value relative flex items-baseline gap-2">
             <span className="text-7xl font-light tracking-[-0.08em] text-white md:text-8xl">
               {progress}
             </span>
@@ -409,7 +420,10 @@ function Reveal({
   return (
     <div
       ref={ref}
-      className={cn("transition-all duration-700 ease-out", className)}
+      className={cn(
+        "transition-all duration-[1150ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
+        className
+      )}
       style={{
         opacity: inView ? 1 : 0,
         transform: inView ? "translateY(0px)" : `translateY(${y}px)`,
@@ -444,8 +458,8 @@ function LineReveal({
               opacity: active ? 1 : 0,
               transform: active ? "translateY(0%)" : "translateY(118%)",
               transition:
-                "transform 0.95s cubic-bezier(0.16,1,0.3,1), opacity 0.7s ease",
-              transitionDelay: `${delay + index * 120}ms`,
+                "transform 1.45s cubic-bezier(0.16,1,0.3,1), opacity 1.05s ease",
+              transitionDelay: `${delay + index * 180}ms`,
             }}
           >
             {line}
@@ -569,7 +583,7 @@ function TiltCard({
       onMouseLeave={onLeave}
       className={className}
       style={{
-        transition: "transform 180ms ease-out",
+        transition: "transform 420ms cubic-bezier(0.16,1,0.3,1)",
         willChange: "transform",
         transformStyle: "preserve-3d",
       }}
@@ -907,7 +921,7 @@ function Hero({
       opacity: mounted ? 1 : 0,
       transform: mounted ? "translate3d(0,0,0)" : "translate3d(0,30px,0)",
       transition:
-        "opacity 0.8s ease, transform 0.9s cubic-bezier(0.16,1,0.3,1)",
+        "opacity 1.05s ease, transform 1.3s cubic-bezier(0.16,1,0.3,1)",
       transitionDelay: `${delay}ms`,
     },
   })
@@ -929,7 +943,7 @@ function Hero({
           priority
           sizes="100vw"
           className={cn(
-            "object-cover transition-transform duration-[2000ms] ease-[cubic-bezier(0.25,1,0.5,1)]",
+            "object-cover transition-transform duration-[3400ms] ease-[cubic-bezier(0.25,1,0.5,1)]",
             introReady ? "scale-100" : "scale-[1.14]"
           )}
         />
@@ -942,7 +956,7 @@ function Hero({
           preload="auto"
           poster={IMG.heroBg}
           className={cn(
-            "absolute inset-0 h-full w-full object-cover transition-opacity duration-[1400ms]",
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-[2400ms]",
             videoReady && !prefersReducedMotion ? "opacity-100" : "opacity-0"
           )}
         >
@@ -984,7 +998,7 @@ function Hero({
             <DashboardLaunchButton
               onLaunch={onLaunchDashboard}
               disabled={isLaunching}
-              className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-5 py-2.5 text-sm text-white backdrop-blur-xl transition-all duration-300 hover:border-white/28 hover:bg-white/14"
+              className="landing-button landing-button--ghost inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-5 py-2.5 text-sm text-white backdrop-blur-xl hover:border-white/28 hover:bg-white/14"
             >
               Launch Platform
               <span aria-hidden>→</span>
@@ -1017,7 +1031,7 @@ function Hero({
               <DashboardLaunchButton
                 onLaunch={onLaunchDashboard}
                 disabled={isLaunching}
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] transition-transform duration-300 hover:-translate-y-0.5"
+                className="landing-button landing-button--solid inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] hover:-translate-y-0.5"
               >
                 Open Platform
                 <span aria-hidden>→</span>
@@ -1146,7 +1160,7 @@ function FeaturesSection({
             <DashboardLaunchButton
               onLaunch={onLaunchDashboard}
               disabled={isLaunching}
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] transition-transform duration-300 hover:-translate-y-0.5"
+              className="landing-button landing-button--solid inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] hover:-translate-y-0.5"
             >
               Open launch options
               <span aria-hidden>→</span>
@@ -1361,20 +1375,20 @@ export default function LandingPage() {
     void (async () => {
       const timings = prefersReducedMotion
         ? {
-            entering: 160,
-            hold: 160,
-            prime: 160,
-            shell: 280,
-            syncCommit: 100,
-            sync: 220,
+            entering: 220,
+            hold: 220,
+            prime: 220,
+            shell: 360,
+            syncCommit: 180,
+            sync: 320,
           }
         : {
-            entering: 240,
-            hold: 240,
-            prime: 240,
-            shell: 420,
-            syncCommit: 160,
-            sync: 360,
+            entering: 880,
+            hold: 420,
+            prime: 560,
+            shell: 1320,
+            syncCommit: 620,
+            sync: 1220,
           }
 
       router.prefetch("/launch")

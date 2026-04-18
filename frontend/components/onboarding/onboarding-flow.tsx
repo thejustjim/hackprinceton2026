@@ -33,6 +33,7 @@ export function OnboardingFlow() {
         onRestartOnboarding={restartOnboarding}
         onUseDemo={noop}
         scenario={sampleSupplyScenario}
+        scenarioSource="demo"
         status="idle"
       />
     )

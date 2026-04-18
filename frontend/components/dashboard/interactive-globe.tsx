@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 
+import { getEcoRoutePalette, withAlpha } from "@/lib/eco-visuals"
 import { type GlobeGeoPoint } from "@/lib/globe-geometry"
 import {
   DEFAULT_GLOBE_GEOMETRY,
@@ -15,6 +16,7 @@ import {
 import { cn } from "@/lib/utils"
 
 interface InteractiveGlobeProps {
+  bestEcoManufacturerByComponent: Record<string, string>
   className?: string
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
@@ -55,34 +57,63 @@ interface RouteModel {
   ecoScore: number
   id: string
   isCurrent: boolean
+  isMostSustainable: boolean
   manufacturerId: string
   points: Vector3[]
 }
 
-interface RouteLabelModel {
-  anchorX: number
-  anchorY: number
-  candidateKey: string
+interface RouteVisualStyle {
+  coreColor: string
+  coreOpacity: number
+  coreWidth: number
+  glowColor: string
+  glowOpacity: number
+  glowWidth: number
+  highlightCore: string
+  highlightGlowSoft: string
+  highlightGlowStrong: string
+  priority: number
+  pulseColor: string
+  pulseDash: string
+  pulseDuration: string
+  pulseOpacity: number
+  pulseWidth: number
+}
+
+interface RouteCaptionModel {
+  angle: number
   componentId: string
-  ecoScore: number
   height: number
-  isCurrent: boolean
+  isFocused: boolean
   label: string
   manufacturerId: string
-  normalX: number
-  normalY: number
   priority: number
-  routeX: number
-  routeY: number
-  score: number
+  routeId: string
+  style: RouteVisualStyle
   width: number
   x: number
   y: number
 }
 
-interface RouteLabelMotionState {
-  outward: number
-  progress: number
+interface AnimatedRouteCaptionModel extends RouteCaptionModel {
+  opacity: number
+}
+
+interface RouteCaptionAnimationState {
+  angle: number
+  model: RouteCaptionModel
+  opacity: number
+  x: number
+  y: number
+}
+
+interface DestinationLabelModel {
+  height: number
+  label: string
+  side: -1 | 1
+  width: number
+  x: number
+  y: number
 }
 
 interface FocusState {
@@ -105,9 +136,13 @@ const FRONT_PATH_THRESHOLD = 0
 const BACK_PATH_THRESHOLD = -0.18
 const ROUTE_FRONT_SURFACE_PADDING = 0.004
 const IDLE_COMMIT_INTERVAL_MS = 1000 / 36
-const ROUTE_LABEL_PROGRESS_LIMIT = 0.06
-const ROUTE_LABEL_OUTWARD_LIMIT = 0.42
-const ROUTE_LABEL_MOTION_RESPONSE = 0.12
+const ROUTE_CAPTION_CANDIDATE_PROGRESS = [0.24, 0.34, 0.43] as const
+const ROUTE_CAPTION_EASING = 0.18
+const ROUTE_CAPTION_FADE_EASING = 0.24
+const ROUTE_CAPTION_OFFSET = 2.1
+const ROUTE_CAPTION_MARGIN_X = 5.5
+const ROUTE_CAPTION_MARGIN_Y = 5.8
+const ROUTE_CAPTION_MAX_LENGTH = 18
 const GRID_LATITUDES_PRIMARY = [-60, -36, -12, 12, 36, 60]
 const GRID_LATITUDES_SECONDARY = [-72, -48, -24, 0, 24, 48, 72]
 const GRID_LONGITUDES_PRIMARY = [
@@ -125,9 +160,46 @@ const DEFAULT_ROTATION: RotationState = {
   pitch: degreesToRadians(-18),
   yaw: degreesToRadians(-26),
 }
+const GLOBE_SURFACE_THEME = {
+  atmosphereHalo: "rgba(218,240,232,0.1)",
+  atmosphereRim: "rgba(222,243,236,0.16)",
+  atmosphereStrokeEnd: "rgba(255,255,255,0.02)",
+  atmosphereStrokeMid: "rgba(113,159,144,0.1)",
+  atmosphereStrokeStart: "rgba(226,244,237,0.2)",
+  backGrid: "rgba(255,255,255,0.04)",
+  countryBack: "rgba(240,246,243,0.045)",
+  countryFront: "rgba(238,245,241,0.26)",
+  countryGlow: "rgba(208,231,221,0.08)",
+  coreShadowStrong: "rgba(0,0,0,0.34)",
+  coreShadowWeak: "rgba(0,0,0,0.02)",
+  destinationFill: "rgba(255,255,255,0.94)",
+  destinationGlow: "rgba(158,198,184,0.12)",
+  destinationStroke: "rgba(208,229,220,0.26)",
+  labelFill: "rgba(7,12,15,0.8)",
+  labelFillStrong: "rgba(7,12,15,0.9)",
+  labelStroke: "rgba(226,240,234,0.14)",
+  labelText: "rgba(241,248,244,0.95)",
+  orbitStroke: "rgba(148,183,171,0.16)",
+  productActiveStroke: "rgba(121,194,168,0.38)",
+  productStroke: "rgba(220,236,228,0.12)",
+  rimEnd: "rgba(222,240,233,0.08)",
+  rimMid: "rgba(112,154,140,0.14)",
+  rimStart: "rgba(232,244,239,0.42)",
+  secondaryGrid: "rgba(255,255,255,0.052)",
+  shadowFill: "rgba(4,8,10,0.32)",
+  surfaceEdge: "rgba(255,255,255,0)",
+  surfaceHighlight: "rgba(235,245,240,0.09)",
+  surfaceMid: "rgba(130,171,157,0.03)",
+  terminatorStroke: "rgba(214,234,226,0.2)",
+  titleMuted: "rgba(205,220,213,0.76)",
+}
 
 function degreesToRadians(value: number) {
   return (value * Math.PI) / 180
+}
+
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -382,7 +454,7 @@ function interpolateRoute(start: GlobeGeoPoint, end: GlobeGeoPoint) {
     1
   )
   const angle = Math.acos(clampedDot)
-  const peakLift = clamp(0.075 + Math.sin(angle / 2) * 0.18, 0.075, 0.26)
+  const peakLift = clamp(0.052 + Math.sin(angle / 2) * 0.12, 0.052, 0.18)
   const route: Vector3[] = []
 
   for (let step = 0; step <= ROUTE_SEGMENTS; step += 1) {
@@ -409,7 +481,7 @@ function interpolateRoute(start: GlobeGeoPoint, end: GlobeGeoPoint) {
 
     const arcHeight = Math.sin(progress * Math.PI) ** 0.94
     const crown = Math.sin(progress * Math.PI) ** 1.75
-    const lift = 1 + arcHeight * peakLift + crown * 0.003
+    const lift = 1 + arcHeight * peakLift + crown * 0.0016
 
     route.push({
       x: blended.x * lift,
@@ -515,33 +587,38 @@ function getVisibleRouteRun(points: Vector3[], rotation: RotationState) {
   return longestVisibleRun
 }
 
-function getRouteLabelAnchor(
+function getRouteCaptionAnchor(
   visibleRun: ProjectedPoint[],
   progress: number,
-  offsetScale = 1
+  offset = ROUTE_CAPTION_OFFSET
 ) {
   const anchorIndex = clamp(
     (visibleRun.length - 1) * progress,
-    1,
-    visibleRun.length - 2
+    1.1,
+    visibleRun.length - 2.1
   )
   const anchor = sampleProjectedRun(visibleRun, anchorIndex)
-  const previousPoint = sampleProjectedRun(visibleRun, anchorIndex - 0.85)
-  const nextPoint = sampleProjectedRun(visibleRun, anchorIndex + 0.85)
+  const previousPoint = sampleProjectedRun(visibleRun, anchorIndex - 1.1)
+  const nextPoint = sampleProjectedRun(visibleRun, anchorIndex + 1.1)
   const tangent = {
     x: nextPoint.x - previousPoint.x,
     y: nextPoint.y - previousPoint.y,
   }
-  const tangentMagnitude = Math.hypot(tangent.x, tangent.y) || 1
+  const tangentMagnitude = Math.hypot(tangent.x, tangent.y)
+
+  if (tangentMagnitude < 0.001) {
+    return null
+  }
+
+  let normal = {
+    x: -tangent.y / tangentMagnitude,
+    y: tangent.x / tangentMagnitude,
+  }
   const outward = {
     x: anchor.x - GLOBE_CENTER,
     y: anchor.y - GLOBE_CENTER,
   }
   const outwardMagnitude = Math.hypot(outward.x, outward.y) || 1
-  let normal = {
-    x: -tangent.y / tangentMagnitude,
-    y: tangent.x / tangentMagnitude,
-  }
   const outwardDirection = {
     x: outward.x / outwardMagnitude,
     y: outward.y / outwardMagnitude,
@@ -554,170 +631,52 @@ function getRouteLabelAnchor(
     }
   }
 
-  const offset = {
-    x:
-      outwardDirection.x * (4.6 * offsetScale) + normal.x * (2.4 * offsetScale),
-    y:
-      outwardDirection.y * (4.6 * offsetScale) + normal.y * (2.4 * offsetScale),
-  }
-  const offsetMagnitude = Math.hypot(offset.x, offset.y) || 1
-  const positionedAnchor = {
-    x: anchor.x + offset.x,
-    y: anchor.y + offset.y,
+  let angle = radiansToDegrees(Math.atan2(tangent.y, tangent.x))
+
+  if (angle > 90 || angle < -90) {
+    angle += 180
   }
 
-  if (
-    positionedAnchor.x < 8 ||
-    positionedAnchor.x > 92 ||
-    positionedAnchor.y < 7 ||
-    positionedAnchor.y > 92
-  ) {
-    return null
-  }
+  const x = anchor.x + normal.x * offset
+  const y = anchor.y + normal.y * offset
 
   return {
-    normalX: roundForSvg(offset.x / offsetMagnitude),
-    normalY: roundForSvg(offset.y / offsetMagnitude),
-    routeX: roundForSvg(anchor.x),
-    routeY: roundForSvg(anchor.y),
-    x: roundForSvg(positionedAnchor.x),
-    y: roundForSvg(positionedAnchor.y),
+    angle: roundForSvg(angle, 3),
+    x: roundForSvg(x),
+    y: roundForSvg(y),
   }
 }
 
-function getRouteLabelPlacementPenalty(
-  candidate: RouteLabelModel,
-  placedLabels: RouteLabelModel[],
-  anchorOffset: number
+function normalizeAngleDelta(current: number, target: number) {
+  let delta = target - current
+
+  while (delta > 180) {
+    delta -= 360
+  }
+
+  while (delta < -180) {
+    delta += 360
+  }
+
+  return delta
+}
+
+function truncateRouteCaption(
+  label: string,
+  maxLength = ROUTE_CAPTION_MAX_LENGTH
 ) {
-  let penalty = Math.abs(anchorOffset) * 140
-
-  for (const placedLabel of placedLabels) {
-    const deltaX = Math.abs(candidate.x - placedLabel.x)
-    const deltaY = Math.abs(candidate.y - placedLabel.y)
-    const overlapX = candidate.width / 2 + placedLabel.width / 2 + 5.8 - deltaX
-    const overlapY =
-      candidate.height / 2 + placedLabel.height / 2 + 3.8 - deltaY
-
-    if (overlapX > 0 && overlapY > 0) {
-      penalty += 420 + overlapX * overlapY * 30
-      continue
-    }
-
-    const gapX = deltaX - (candidate.width / 2 + placedLabel.width / 2)
-    const gapY = deltaY - (candidate.height / 2 + placedLabel.height / 2)
-
-    if (gapX < 7.4 && gapY < 5.8) {
-      penalty += (7.4 - gapX) * 54 + (5.8 - gapY) * 44
-    }
+  if (label.length <= maxLength) {
+    return label
   }
 
-  return penalty
+  return `${label.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
 }
 
-function resolveRouteLabelCollisions(labels: RouteLabelModel[]) {
-  const resolved = labels.map((label) => ({
-    ...label,
-  }))
-
-  if (resolved.length < 2) {
-    return labels
-  }
-
-  for (let iteration = 0; iteration < 16; iteration += 1) {
-    let shifted = false
-
-    for (let index = 0; index < resolved.length; index += 1) {
-      for (
-        let otherIndex = index + 1;
-        otherIndex < resolved.length;
-        otherIndex += 1
-      ) {
-        const label = resolved[index]
-        const otherLabel = resolved[otherIndex]
-        const deltaX = otherLabel.x - label.x
-        const deltaY = otherLabel.y - label.y
-        const overlapX =
-          label.width / 2 + otherLabel.width / 2 + 3.2 - Math.abs(deltaX)
-        const overlapY =
-          label.height / 2 + otherLabel.height / 2 + 2.4 - Math.abs(deltaY)
-
-        if (overlapX <= 0 || overlapY <= 0) {
-          continue
-        }
-
-        shifted = true
-
-        const labelMobility = 1 / Math.max(1, label.priority)
-        const otherMobility = 1 / Math.max(1, otherLabel.priority)
-        const totalMobility = labelMobility + otherMobility || 1
-        const labelShare = labelMobility / totalMobility
-        const otherShare = otherMobility / totalMobility
-
-        if (overlapY <= overlapX) {
-          const direction =
-            deltaY === 0
-              ? label.anchorY <= otherLabel.anchorY
-                ? -1
-                : 1
-              : Math.sign(deltaY)
-          const shift = overlapY / 2 + 0.72
-
-          label.y -= direction * shift * labelShare
-          otherLabel.y += direction * shift * otherShare
-          label.x -= label.normalX * shift * 0.5 * labelShare
-          otherLabel.x += otherLabel.normalX * shift * 0.5 * otherShare
-        } else {
-          const direction =
-            deltaX === 0
-              ? label.anchorX <= otherLabel.anchorX
-                ? -1
-                : 1
-              : Math.sign(deltaX)
-          const shift = overlapX / 2 + 0.62
-
-          label.x -= direction * shift * labelShare
-          otherLabel.x += direction * shift * otherShare
-          label.y -= label.normalY * shift * 0.42 * labelShare
-          otherLabel.y += otherLabel.normalY * shift * 0.42 * otherShare
-        }
-      }
-    }
-
-    resolved.forEach((label) => {
-      label.x += (label.anchorX - label.x) * 0.05
-      label.y += (label.anchorY - label.y) * 0.05
-      label.x = clamp(label.x, label.width / 2 + 6.5, 93.5 - label.width / 2)
-      label.y = clamp(label.y, label.height / 2 + 5.8, 94 - label.height / 2)
-    })
-
-    if (!shifted) {
-      break
-    }
-  }
-
-  return resolved.map((label) => ({
-    ...label,
-  }))
-}
-
-function getRouteLabelLeaderPath(label: RouteLabelModel) {
-  const deltaX = label.x - label.routeX
-  const deltaY = label.y - label.routeY
-  const distance = Math.hypot(deltaX, deltaY)
-
-  if (distance < 3.8) {
-    return null
-  }
-
-  const endInset = Math.min(label.width * 0.34, 5.8)
-  const endX = label.x - (deltaX / distance) * endInset
-  const endY =
-    label.y - (deltaY / distance) * Math.min(label.height * 0.52, 2.8)
-  const controlX = label.routeX + deltaX * 0.42 + label.normalX * 1.2
-  const controlY = label.routeY + deltaY * 0.42 + label.normalY * 1.2
-
-  return `M ${label.routeX.toFixed(2)} ${label.routeY.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${endX.toFixed(2)} ${endY.toFixed(2)}`
+function captionsOverlap(left: RouteCaptionModel, right: RouteCaptionModel) {
+  return (
+    Math.abs(left.x - right.x) < left.width / 2 + right.width / 2 + 1.8 &&
+    Math.abs(left.y - right.y) < left.height / 2 + right.height / 2 + 1.1
+  )
 }
 
 function pointOnQuadratic(
@@ -780,75 +739,25 @@ function resolveFocus(
   }
 }
 
-function hexToRgba(hex: string, alpha: number) {
-  const normalized = hex.replace("#", "")
-  const value =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((char) => `${char}${char}`)
-          .join("")
-      : normalized
-
-  const red = parseInt(value.slice(0, 2), 16)
-  const green = parseInt(value.slice(2, 4), 16)
-  const blue = parseInt(value.slice(4, 6), 16)
-
-  return `rgba(${red},${green},${blue},${alpha})`
-}
-
-function getEcoRoutePalette(score: number) {
-  if (score < 40) {
-    return {
-      coreFaint: hexToRgba("#34D399", 0.24),
-      coreMedium: hexToRgba("#34D399", 0.82),
-      coreSoft: hexToRgba("#34D399", 0.58),
-      coreStrong: "#34D399",
-      glowFaint: hexToRgba("#34D399", 0.08),
-      glowMedium: hexToRgba("#34D399", 0.24),
-      glowStrong: hexToRgba("#34D399", 0.4),
-      pulseFaint: hexToRgba("#ECFDF5", 0.24),
-      pulseMedium: hexToRgba("#ECFDF5", 0.84),
-      pulseStrong: "#ECFDF5",
-    }
-  }
-
-  if (score < 60) {
-    return {
-      coreFaint: hexToRgba("#FBBF24", 0.26),
-      coreMedium: hexToRgba("#FBBF24", 0.84),
-      coreSoft: hexToRgba("#FBBF24", 0.6),
-      coreStrong: "#FBBF24",
-      glowFaint: hexToRgba("#FBBF24", 0.08),
-      glowMedium: hexToRgba("#FBBF24", 0.24),
-      glowStrong: hexToRgba("#FBBF24", 0.38),
-      pulseFaint: hexToRgba("#FEF3C7", 0.26),
-      pulseMedium: hexToRgba("#FEF3C7", 0.86),
-      pulseStrong: "#FEF3C7",
-    }
-  }
-
-  return {
-    coreFaint: hexToRgba("#F87171", 0.28),
-    coreMedium: hexToRgba("#F87171", 0.86),
-    coreSoft: hexToRgba("#F87171", 0.62),
-    coreStrong: "#F87171",
-    glowFaint: hexToRgba("#F87171", 0.08),
-    glowMedium: hexToRgba("#F87171", 0.24),
-    glowStrong: hexToRgba("#F87171", 0.4),
-    pulseFaint: hexToRgba("#FEE2E2", 0.28),
-    pulseMedium: hexToRgba("#FEE2E2", 0.88),
-    pulseStrong: "#FEE2E2",
-  }
-}
-
 function getRouteStyle(
   route: RouteModel,
   selectedFocus: FocusState | null,
   hoveredFocus: FocusState | null,
   pinnedManufacturerByComponent: Record<string, string>
-) {
+): RouteVisualStyle {
   const palette = getEcoRoutePalette(route.ecoScore)
+  const buildStyle = (
+    style: Omit<
+      RouteVisualStyle,
+      "highlightCore" | "highlightGlowSoft" | "highlightGlowStrong"
+    >
+  ) => ({
+    ...style,
+    highlightCore: palette.highlightCore,
+    highlightGlowSoft: palette.highlightGlowSoft,
+    highlightGlowStrong: palette.highlightGlowStrong,
+  })
+  const activeManufacturerId = pinnedManufacturerByComponent[route.componentId]
   const overviewActive =
     (!selectedFocus && !hoveredFocus) ||
     selectedFocus?.product ||
@@ -865,234 +774,219 @@ function getRouteStyle(
     hoveredFocus?.manufacturerId === route.manufacturerId
   const selectedComponent = selectedFocus?.componentId === route.componentId
   const hoveredComponent = hoveredFocus?.componentId === route.componentId
-  const pinnedManufacturer =
-    pinnedManufacturerByComponent[route.componentId] === route.manufacturerId
+  const pinnedManufacturer = activeManufacturerId === route.manufacturerId
+  const overriddenCurrentRoute = route.isCurrent && !pinnedManufacturer
 
   if (selectedManufacturer) {
-    return {
+    return buildStyle({
       coreColor: palette.coreStrong,
       coreOpacity: 1,
-      coreWidth: 1.52,
+      coreWidth: 1.38,
       glowColor: palette.glowStrong,
-      glowOpacity: 0.98,
-      glowWidth: 3.5,
+      glowOpacity: 0.86,
+      glowWidth: 2.84,
       priority: 6,
       pulseColor: palette.pulseStrong,
-      pulseDash: "16 84",
-      pulseDuration: "6.8s",
-      pulseOpacity: 0.98,
-      pulseWidth: 1.72,
-    }
+      pulseDash: "14 86",
+      pulseDuration: "7.2s",
+      pulseOpacity: 0.88,
+      pulseWidth: 1.42,
+    })
   }
 
   if (hoveredManufacturer) {
-    return {
+    return buildStyle({
       coreColor: palette.coreMedium,
-      coreOpacity: 0.98,
-      coreWidth: 1.38,
+      coreOpacity: 0.94,
+      coreWidth: 1.2,
       glowColor: palette.glowStrong,
-      glowOpacity: 0.92,
-      glowWidth: 3.1,
+      glowOpacity: 0.8,
+      glowWidth: 2.42,
       priority: 5,
       pulseColor: palette.pulseMedium,
-      pulseDash: "15 85",
-      pulseDuration: "7.2s",
-      pulseOpacity: 0.94,
-      pulseWidth: 1.56,
-    }
+      pulseDash: "13 87",
+      pulseDuration: "7.6s",
+      pulseOpacity: 0.76,
+      pulseWidth: 1.2,
+    })
   }
 
   if (selectedComponent) {
     if (pinnedManufacturer) {
-      return {
-        coreColor: palette.coreMedium,
+      return buildStyle({
+        coreColor: palette.coreStrong,
         coreOpacity: 0.98,
-        coreWidth: 1.28,
-        glowColor: palette.glowMedium,
-        glowOpacity: 0.9,
-        glowWidth: 2.95,
+        coreWidth: 1.14,
+        glowColor: palette.glowStrong,
+        glowOpacity: 0.78,
+        glowWidth: 2.32,
         priority: 4.5,
-        pulseColor: palette.pulseMedium,
-        pulseDash: "14 86",
-        pulseDuration: "7.4s",
-        pulseOpacity: 0.9,
-        pulseWidth: 1.4,
-      }
+        pulseColor: palette.pulseStrong,
+        pulseDash: "13 87",
+        pulseDuration: "7.8s",
+        pulseOpacity: 0.76,
+        pulseWidth: 1.18,
+      })
     }
 
-    return route.isCurrent
-      ? {
-          coreColor: palette.coreMedium,
-          coreOpacity: 0.96,
-          coreWidth: 1.24,
-          glowColor: palette.glowMedium,
-          glowOpacity: 0.86,
-          glowWidth: 2.8,
-          priority: 4,
-          pulseColor: palette.pulseMedium,
-          pulseDash: "14 86",
-          pulseDuration: "7.6s",
-          pulseOpacity: 0.88,
-          pulseWidth: 1.34,
-        }
-      : {
+    return overriddenCurrentRoute
+      ? buildStyle({
           coreColor: palette.coreSoft,
-          coreOpacity: 0.82,
-          coreWidth: 0.98,
+          coreOpacity: 0.58,
+          coreWidth: 0.74,
+          glowColor: palette.glowFaint,
+          glowOpacity: 0.28,
+          glowWidth: 1.34,
+          priority: 4,
+          pulseColor: palette.pulseFaint,
+          pulseDash: "12 88",
+          pulseDuration: "8s",
+          pulseOpacity: 0.34,
+          pulseWidth: 0.76,
+        })
+      : buildStyle({
+          coreColor: palette.coreSoft,
+          coreOpacity: 0.72,
+          coreWidth: 0.86,
           glowColor: palette.glowMedium,
-          glowOpacity: 0.68,
-          glowWidth: 2.2,
+          glowOpacity: 0.42,
+          glowWidth: 1.68,
           priority: 3,
           pulseColor: palette.pulseMedium,
-          pulseDash: "12 88",
-          pulseDuration: "8.4s",
-          pulseOpacity: 0.76,
-          pulseWidth: 1.08,
-        }
+          pulseDash: "11 89",
+          pulseDuration: "8.6s",
+          pulseOpacity: 0.52,
+          pulseWidth: 0.86,
+        })
   }
 
   if (hoveredComponent) {
     if (pinnedManufacturer) {
-      return {
-        coreColor: palette.coreMedium,
-        coreOpacity: 0.94,
-        coreWidth: 1.18,
-        glowColor: palette.glowMedium,
-        glowOpacity: 0.84,
-        glowWidth: 2.7,
+      return buildStyle({
+        coreColor: palette.coreStrong,
+        coreOpacity: 0.92,
+        coreWidth: 1.04,
+        glowColor: palette.glowStrong,
+        glowOpacity: 0.72,
+        glowWidth: 2.12,
         priority: 3.5,
-        pulseColor: palette.pulseMedium,
-        pulseDash: "13 87",
-        pulseDuration: "7.9s",
-        pulseOpacity: 0.84,
-        pulseWidth: 1.28,
-      }
+        pulseColor: palette.pulseStrong,
+        pulseDash: "12 88",
+        pulseDuration: "8.2s",
+        pulseOpacity: 0.7,
+        pulseWidth: 1.02,
+      })
     }
 
-    return route.isCurrent
-      ? {
-          coreColor: palette.coreMedium,
-          coreOpacity: 0.92,
-          coreWidth: 1.18,
-          glowColor: palette.glowMedium,
-          glowOpacity: 0.82,
-          glowWidth: 2.6,
-          priority: 3,
-          pulseColor: palette.pulseMedium,
-          pulseDash: "13 87",
-          pulseDuration: "8s",
-          pulseOpacity: 0.84,
-          pulseWidth: 1.26,
-        }
-      : {
+    return overriddenCurrentRoute
+      ? buildStyle({
           coreColor: palette.coreSoft,
-          coreOpacity: 0.78,
-          coreWidth: 0.9,
+          coreOpacity: 0.5,
+          coreWidth: 0.68,
           glowColor: palette.glowFaint,
-          glowOpacity: 0.6,
-          glowWidth: 2,
+          glowOpacity: 0.22,
+          glowWidth: 1.18,
+          priority: 3,
+          pulseColor: palette.pulseFaint,
+          pulseDash: "11 89",
+          pulseDuration: "8.4s",
+          pulseOpacity: 0.26,
+          pulseWidth: 0.68,
+        })
+      : buildStyle({
+          coreColor: palette.coreSoft,
+          coreOpacity: 0.66,
+          coreWidth: 0.78,
+          glowColor: palette.glowFaint,
+          glowOpacity: 0.36,
+          glowWidth: 1.42,
           priority: 2,
           pulseColor: palette.pulseFaint,
-          pulseDash: "12 88",
-          pulseDuration: "8.8s",
-          pulseOpacity: 0.7,
-          pulseWidth: 1.02,
-        }
+          pulseDash: "11 89",
+          pulseDuration: "9s",
+          pulseOpacity: 0.38,
+          pulseWidth: 0.78,
+        })
   }
 
   if (pinnedManufacturer) {
-    return route.isCurrent
-      ? {
-          coreColor: palette.coreMedium,
-          coreOpacity: 0.92,
-          coreWidth: 1.14,
-          glowColor: palette.glowMedium,
-          glowOpacity: 0.82,
-          glowWidth: 2.55,
-          priority: 2.5,
-          pulseColor: palette.pulseMedium,
-          pulseDash: "13 87",
-          pulseDuration: "8s",
-          pulseOpacity: 0.82,
-          pulseWidth: 1.22,
-        }
-      : {
-          coreColor: palette.coreSoft,
-          coreOpacity: 0.88,
-          coreWidth: 1.04,
-          glowColor: palette.glowMedium,
-          glowOpacity: 0.72,
-          glowWidth: 2.28,
-          priority: 2.3,
-          pulseColor: palette.pulseMedium,
-          pulseDash: "12 88",
-          pulseDuration: "8.6s",
-          pulseOpacity: 0.76,
-          pulseWidth: 1.08,
-        }
+    return buildStyle({
+      coreColor: palette.coreStrong,
+      coreOpacity: 0.96,
+      coreWidth: 1.18,
+      glowColor: palette.glowStrong,
+      glowOpacity: 0.8,
+      glowWidth: 2.26,
+      priority: 2.6,
+      pulseColor: palette.pulseStrong,
+      pulseDash: "12 88",
+      pulseDuration: "8s",
+      pulseOpacity: 0.72,
+      pulseWidth: 1.08,
+    })
   }
 
   if (overviewActive) {
-    return route.isCurrent
-      ? {
-          coreColor: palette.coreMedium,
-          coreOpacity: 0.94,
-          coreWidth: 1.12,
-          glowColor: palette.glowMedium,
-          glowOpacity: 0.76,
-          glowWidth: 2.45,
-          priority: 2,
-          pulseColor: palette.pulseMedium,
-          pulseDash: "13 87",
-          pulseDuration: "8.2s",
-          pulseOpacity: 0.84,
-          pulseWidth: 1.2,
-        }
-      : {
+    return overriddenCurrentRoute
+      ? buildStyle({
           coreColor: palette.coreSoft,
-          coreOpacity: 0.62,
-          coreWidth: 0.78,
+          coreOpacity: 0.34,
+          coreWidth: 0.54,
           glowColor: palette.glowFaint,
-          glowOpacity: 0.42,
-          glowWidth: 1.72,
-          priority: 1,
+          glowOpacity: 0.12,
+          glowWidth: 0.92,
+          priority: 2,
           pulseColor: palette.pulseFaint,
           pulseDash: "11 89",
-          pulseDuration: "9.2s",
-          pulseOpacity: 0.56,
-          pulseWidth: 0.92,
-        }
+          pulseDuration: "8.8s",
+          pulseOpacity: 0.18,
+          pulseWidth: 0.54,
+        })
+      : buildStyle({
+          coreColor: palette.coreSoft,
+          coreOpacity: 0.5,
+          coreWidth: 0.68,
+          glowColor: palette.glowFaint,
+          glowOpacity: 0.24,
+          glowWidth: 1.18,
+          priority: 1,
+          pulseColor: palette.pulseFaint,
+          pulseDash: "10 90",
+          pulseDuration: "9.4s",
+          pulseOpacity: 0.28,
+          pulseWidth: 0.64,
+        })
   }
 
-  return route.isCurrent && anyFocusedRoute
-    ? {
+  return overriddenCurrentRoute && anyFocusedRoute
+    ? buildStyle({
         coreColor: palette.coreFaint,
-        coreOpacity: 0.34,
-        coreWidth: 0.54,
-        glowColor: palette.glowFaint,
-        glowOpacity: 0.16,
-        glowWidth: 1.28,
-        priority: 0,
-        pulseColor: palette.pulseFaint,
-        pulseDash: "10 90",
-        pulseDuration: "10.2s",
-        pulseOpacity: 0.22,
-        pulseWidth: 0.62,
-      }
-    : {
-        coreColor: palette.coreFaint,
-        coreOpacity: 0.18,
+        coreOpacity: 0.2,
         coreWidth: 0.42,
         glowColor: palette.glowFaint,
         glowOpacity: 0.08,
-        glowWidth: 0.96,
+        glowWidth: 0.82,
         priority: 0,
         pulseColor: palette.pulseFaint,
         pulseDash: "10 90",
-        pulseDuration: "10.8s",
+        pulseDuration: "10s",
         pulseOpacity: 0.1,
-        pulseWidth: 0.5,
-      }
+        pulseWidth: 0.44,
+      })
+    : buildStyle({
+        coreColor: palette.coreFaint,
+        coreOpacity: 0.14,
+        coreWidth: 0.36,
+        glowColor: palette.glowFaint,
+        glowOpacity: 0.06,
+        glowWidth: 0.72,
+        priority: 0,
+        pulseColor: palette.pulseFaint,
+        pulseDash: "10 90",
+        pulseDuration: "10.6s",
+        pulseOpacity: 0.08,
+        pulseWidth: 0.4,
+      })
 }
 
 const SMOOTHED_FALLBACK_LAND_OUTLINES = DEFAULT_GLOBE_GEOMETRY.landOutlines.map(
@@ -1116,6 +1010,7 @@ const SECONDARY_LONGITUDE_LINES = GRID_LONGITUDES_SECONDARY.map((longitude) =>
 )
 
 export function InteractiveGlobe({
+  bestEcoManufacturerByComponent,
   className,
   hoveredNodeId,
   onHoverNode,
@@ -1125,17 +1020,18 @@ export function InteractiveGlobe({
   selectedNodeId,
 }: InteractiveGlobeProps) {
   const [rotation, setRotation] = useState(DEFAULT_ROTATION)
-  const [routeLabelMotion, setRouteLabelMotion] =
-    useState<RouteLabelMotionState>({ outward: 0, progress: 0 })
+  const [renderedRouteCaptions, setRenderedRouteCaptions] = useState<
+    AnimatedRouteCaptionModel[]
+  >([])
   const [geometry, setGeometry] = useState(DEFAULT_GLOBE_GEOMETRY)
   const clipPathId = `globe-clip-${useId().replaceAll(":", "")}`
   const dragStateRef = useRef<DragState | null>(null)
   const lastCommitRef = useRef(0)
   const rotationRef = useRef(DEFAULT_ROTATION)
-  const routeLabelMotionRef = useRef<RouteLabelMotionState>({
-    outward: 0,
-    progress: 0,
-  })
+  const routeCaptionStatesRef = useRef(
+    new Map<string, RouteCaptionAnimationState>()
+  )
+  const routeCaptionTargetsRef = useRef<RouteCaptionModel[]>([])
   const velocityRef = useRef({ pitch: 0, yaw: 0 })
 
   useEffect(() => {
@@ -1179,27 +1075,60 @@ export function InteractiveGlobe({
         }
       }
 
-      routeLabelMotionRef.current = {
-        outward:
-          routeLabelMotionRef.current.outward +
-          (clamp(
-            Math.hypot(velocityRef.current.pitch, velocityRef.current.yaw) *
-              180,
-            0,
-            ROUTE_LABEL_OUTWARD_LIMIT
-          ) -
-            routeLabelMotionRef.current.outward) *
-            ROUTE_LABEL_MOTION_RESPONSE,
-        progress:
-          routeLabelMotionRef.current.progress +
-          (clamp(
-            velocityRef.current.yaw * 18,
-            -ROUTE_LABEL_PROGRESS_LIMIT,
-            ROUTE_LABEL_PROGRESS_LIMIT
-          ) -
-            routeLabelMotionRef.current.progress) *
-            ROUTE_LABEL_MOTION_RESPONSE,
-      }
+      const frameScale = delta / (1000 / 60)
+      const captionBlend = 1 - Math.pow(1 - ROUTE_CAPTION_EASING, frameScale)
+      const captionFadeBlend =
+        1 - Math.pow(1 - ROUTE_CAPTION_FADE_EASING, frameScale)
+      const captionTargetsByRouteId = new Map(
+        routeCaptionTargetsRef.current.map((caption) => [
+          caption.routeId,
+          caption,
+        ])
+      )
+
+      captionTargetsByRouteId.forEach((caption, routeId) => {
+        const state = routeCaptionStatesRef.current.get(routeId) ?? {
+          angle: caption.angle,
+          model: caption,
+          opacity: 0,
+          x: caption.x,
+          y: caption.y,
+        }
+
+        state.model = caption
+        state.x += (caption.x - state.x) * captionBlend
+        state.y += (caption.y - state.y) * captionBlend
+        state.angle +=
+          normalizeAngleDelta(state.angle, caption.angle) * captionBlend
+        state.opacity += (1 - state.opacity) * captionFadeBlend
+
+        routeCaptionStatesRef.current.set(routeId, state)
+      })
+
+      const animatedRouteCaptions = Array.from(
+        routeCaptionStatesRef.current.entries()
+      )
+        .flatMap(([routeId, state]) => {
+          if (!captionTargetsByRouteId.has(routeId)) {
+            state.opacity += (0 - state.opacity) * captionFadeBlend
+
+            if (state.opacity < 0.035) {
+              routeCaptionStatesRef.current.delete(routeId)
+              return []
+            }
+          }
+
+          return [
+            {
+              ...state.model,
+              angle: roundForSvg(state.angle, 3),
+              opacity: roundForSvg(clamp(state.opacity, 0, 1), 3),
+              x: roundForSvg(state.x),
+              y: roundForSvg(state.y),
+            } satisfies AnimatedRouteCaptionModel,
+          ]
+        })
+        .sort((left, right) => left.priority - right.priority)
 
       const shouldCommit =
         dragStateRef.current ||
@@ -1208,7 +1137,7 @@ export function InteractiveGlobe({
       if (shouldCommit) {
         lastCommitRef.current = timestamp
         setRotation({ ...rotationRef.current })
-        setRouteLabelMotion({ ...routeLabelMotionRef.current })
+        setRenderedRouteCaptions(animatedRouteCaptions)
       }
 
       frameId = window.requestAnimationFrame(tick)
@@ -1264,6 +1193,9 @@ export function InteractiveGlobe({
             ecoScore: manufacturer.ecoScore,
             id: route.id,
             isCurrent: route.isCurrent,
+            isMostSustainable:
+              bestEcoManufacturerByComponent[route.componentId] ===
+              route.manufacturerId,
             manufacturerId: route.manufacturerId,
             points: interpolateRoute(
               toGeoPoint(manufacturer.location),
@@ -1272,7 +1204,12 @@ export function InteractiveGlobe({
           }
         })
         .filter((route): route is RouteModel => Boolean(route)),
-    [manufacturerById, scenario.destination.location, scenario.routes]
+    [
+      bestEcoManufacturerByComponent,
+      manufacturerById,
+      scenario.destination.location,
+      scenario.routes,
+    ]
   )
   const projectedManufacturerSites = useMemo(
     () =>
@@ -1301,6 +1238,30 @@ export function InteractiveGlobe({
         }
       : null
   }, [rotation, scenario.destination])
+  const destinationLabel = useMemo<DestinationLabelModel | null>(() => {
+    if (!projectedDestination) {
+      return null
+    }
+
+    const label = truncateRouteCaption(scenario.destination.label, 16)
+    const side = projectedDestination.point.x > 67 ? -1 : 1
+    const width = clamp(label.length * 1.52 + 9.4, 14, 30)
+    const x = clamp(
+      projectedDestination.point.x + side * (width / 2 + 5.6),
+      width / 2 + 4,
+      100 - width / 2 - 4
+    )
+    const y = clamp(projectedDestination.point.y - 6.2, 10, 92)
+
+    return {
+      height: 4.8,
+      label,
+      side,
+      width,
+      x: roundForSvg(x),
+      y: roundForSvg(y),
+    }
+  }, [projectedDestination, scenario.destination.label])
 
   const landOutlines =
     geometry.source === "fallback"
@@ -1381,16 +1342,94 @@ export function InteractiveGlobe({
       ),
     [rotation]
   )
-  const routeSegments = useMemo(
+  const routeStyleByRouteId = useMemo(
     () =>
-      routeModels
-        .flatMap((route, routeIndex) => {
-          const style = getRouteStyle(
+      new Map(
+        routeModels.map((route) => [
+          route.id,
+          getRouteStyle(
             route,
             selectedFocus,
             hoveredFocus,
             pinnedManufacturerByComponent
-          )
+          ),
+        ])
+      ),
+    [hoveredFocus, pinnedManufacturerByComponent, routeModels, selectedFocus]
+  )
+  const componentIndexById = useMemo(
+    () =>
+      new Map(
+        scenario.components.map((component, componentIndex) => [
+          component.id,
+          componentIndex,
+        ])
+      ),
+    [scenario.components]
+  )
+  const componentById = useMemo(
+    () =>
+      new Map(
+        scenario.components.map((component) => [component.id, component])
+      ),
+    [scenario.components]
+  )
+  const routeByManufacturerId = useMemo(
+    () =>
+      new Map(
+        routeModels.map((route) => [route.manufacturerId, route] as const)
+      ),
+    [routeModels]
+  )
+  const routesByComponentId = useMemo(() => {
+    const groupedRoutes = new Map<string, RouteModel[]>()
+
+    routeModels.forEach((route) => {
+      const componentRoutes = groupedRoutes.get(route.componentId)
+
+      if (componentRoutes) {
+        componentRoutes.push(route)
+        return
+      }
+
+      groupedRoutes.set(route.componentId, [route])
+    })
+
+    return groupedRoutes
+  }, [routeModels])
+  const activeRouteByComponentId = useMemo(() => {
+    const activeRoutes = new Map<string, RouteModel>()
+
+    scenario.components.forEach((component) => {
+      const componentRoutes = routesByComponentId.get(component.id) ?? []
+      const activeRoute =
+        componentRoutes.find(
+          (route) =>
+            pinnedManufacturerByComponent[component.id] === route.manufacturerId
+        ) ??
+        componentRoutes.find((route) => route.isCurrent) ??
+        componentRoutes[0]
+
+      if (activeRoute) {
+        activeRoutes.set(component.id, activeRoute)
+      }
+    })
+
+    return activeRoutes
+  }, [pinnedManufacturerByComponent, routesByComponentId, scenario.components])
+  const visibleRouteModels = useMemo(
+    () => Array.from(activeRouteByComponentId.values()),
+    [activeRouteByComponentId]
+  )
+  const routeSegments = useMemo(
+    () =>
+      visibleRouteModels
+        .flatMap((route, routeIndex) => {
+          const style = routeStyleByRouteId.get(route.id)
+
+          if (!style) {
+            return []
+          }
 
           return buildRouteSegments(route.points, rotation).map(
             (path, segmentIndex) => ({
@@ -1405,172 +1444,150 @@ export function InteractiveGlobe({
           )
         })
         .sort((left, right) => left.style.priority - right.style.priority),
-    [
-      hoveredFocus,
-      pinnedManufacturerByComponent,
-      rotation,
-      routeModels,
-      selectedFocus,
-    ]
+    [rotation, routeStyleByRouteId, visibleRouteModels]
   )
-  const dynamicComponentLabels = useMemo(() => {
-    const componentCount = scenario.components.length
-    const placedLabels: RouteLabelModel[] = []
-    const labelDescriptors = scenario.components
-      .map((component, componentIndex) => {
-        const componentId = component.id
-        const selectedComponent = selectedFocus?.componentId === componentId
-        const hoveredComponent = hoveredFocus?.componentId === componentId
-        const preferredManufacturerId =
-          selectedComponent || hoveredComponent
-            ? selectedComponent
-              ? selectedFocus?.manufacturerId
-              : hoveredFocus?.manufacturerId
-            : pinnedManufacturerByComponent[componentId]
-        const currentFirst =
-          !selectedComponent &&
-          !hoveredComponent &&
-          !pinnedManufacturerByComponent[componentId]
-        const candidateRoutes = routeModels
-          .filter((route) => route.componentId === componentId)
-          .sort((left, right) => {
-            const leftScore =
-              (preferredManufacturerId === left.manufacturerId ? 6 : 0) +
-              (currentFirst && left.isCurrent ? 3 : 0) +
-              (selectedComponent && left.isCurrent ? 2 : 0) +
-              (hoveredComponent && left.isCurrent ? 1 : 0)
-            const rightScore =
-              (preferredManufacturerId === right.manufacturerId ? 6 : 0) +
-              (currentFirst && right.isCurrent ? 3 : 0) +
-              (selectedComponent && right.isCurrent ? 2 : 0) +
-              (hoveredComponent && right.isCurrent ? 1 : 0)
+  const routeCaptionTargets = useMemo(() => {
+    const captionRoutes = new Map<
+      string,
+      {
+        isFocused: boolean
+        priority: number
+        route: RouteModel
+      }
+    >()
 
-            return rightScore - leftScore
-          })
+    const registerCaptionRoute = (route: RouteModel | undefined, priority: number) => {
+      if (!route) {
+        return
+      }
 
-        return {
-          candidateRoutes,
-          component,
-          componentIndex,
-          priority: selectedComponent ? 6 : hoveredComponent ? 5 : 2,
-        }
+      const existing = captionRoutes.get(route.id)
+
+      captionRoutes.set(route.id, {
+        isFocused: existing?.isFocused || false,
+        priority: Math.max(
+          existing?.priority ?? Number.NEGATIVE_INFINITY,
+          priority
+        ),
+        route,
       })
-      .filter((descriptor) => descriptor.candidateRoutes.length > 0)
+    }
+
+    scenario.components.forEach((component) => {
+      const activeRoute = activeRouteByComponentId.get(component.id)
+      const basePriority =
+        selectedFocus?.componentId === component.id
+          ? 3.5
+          : hoveredFocus?.componentId === component.id
+            ? 3
+            : 2
+
+      registerCaptionRoute(activeRoute, basePriority)
+    })
+
+    const placedCaptions: RouteCaptionModel[] = []
+
+    Array.from(captionRoutes.values())
       .sort((left, right) => {
         if (right.priority !== left.priority) {
           return right.priority - left.priority
         }
 
-        return left.componentIndex - right.componentIndex
+        return (
+          (componentIndexById.get(left.route.componentId) ?? 0) -
+          (componentIndexById.get(right.route.componentId) ?? 0)
+        )
       })
-
-    for (const descriptor of labelDescriptors) {
-      const { candidateRoutes, component, componentIndex, priority } =
-        descriptor
-      const width = Math.max(21, component.label.length * 1.92 + 11)
-      const height = 6.8
-      const laneOffset =
-        componentCount <= 1
-          ? 0
-          : (componentIndex / Math.max(1, componentCount - 1) - 0.5) * 1.05
-      let bestLabel: RouteLabelModel | null = null
-      let bestPenalty = Number.POSITIVE_INFINITY
-
-      for (
-        let routeIndex = 0;
-        routeIndex < Math.min(2, candidateRoutes.length);
-        routeIndex += 1
-      ) {
-        const route = candidateRoutes[routeIndex]
+      .forEach(({ isFocused, priority, route }) => {
+        const component = componentById.get(route.componentId)
+        const style = routeStyleByRouteId.get(route.id)
         const visibleRun = getVisibleRouteRun(route.points, rotation)
 
-        if (!visibleRun) {
-          continue
+        if (!component || !style || !visibleRun) {
+          return
         }
 
-        const midpointProgress = clamp(
-          0.5 + routeLabelMotion.progress * (routeIndex === 0 ? 1 : 0.72),
-          0.43,
-          0.57
-        )
-        const progressOffsets = [0, -0.12, 0.12, -0.22, 0.22, -0.32, 0.32]
-        const offsetScales = [
-          1.35 + routeLabelMotion.outward * 0.35,
-          1.8 + routeLabelMotion.outward * 0.45,
-          2.25 + routeLabelMotion.outward * 0.55,
-          2.8 + routeLabelMotion.outward * 0.65,
-        ]
+        const label = truncateRouteCaption(component.label)
+        const fontSize = isFocused ? 2.12 : 1.96
+        const width = Math.max(12.4, label.length * fontSize * 0.58 + 4.8)
+        const height = isFocused ? 4.7 : 4.25
 
-        for (const progressOffset of progressOffsets) {
-          const progress = clamp(midpointProgress + progressOffset, 0.14, 0.86)
-          for (const offsetScale of offsetScales) {
-            const anchor = getRouteLabelAnchor(
-              visibleRun,
-              progress,
-              offsetScale + Math.abs(laneOffset) * 0.55
-            )
+        for (const progress of ROUTE_CAPTION_CANDIDATE_PROGRESS) {
+          const anchor = getRouteCaptionAnchor(
+            visibleRun,
+            progress,
+            ROUTE_CAPTION_OFFSET + (isFocused ? 0.16 : 0)
+          )
 
-            if (!anchor) {
-              continue
-            }
-
-            const candidateKey = `${route.id}:${progress.toFixed(3)}:${offsetScale.toFixed(2)}`
-            const candidateLabel = {
-              anchorX: roundForSvg(anchor.x),
-              anchorY: roundForSvg(anchor.y),
-              candidateKey,
-              componentId: component.id,
-              ecoScore: route.ecoScore,
-              height,
-              isCurrent: route.isCurrent,
-              label: component.label,
-              manufacturerId: route.manufacturerId,
-              normalX: roundForSvg(anchor.normalX),
-              normalY: roundForSvg(anchor.normalY),
-              priority: priority + (route.isCurrent ? 1 : 0),
-              routeX: roundForSvg(anchor.routeX),
-              routeY: roundForSvg(anchor.routeY),
-              score: 0,
-              width,
-              x: roundForSvg(anchor.x),
-              y: roundForSvg(anchor.y),
-            } satisfies RouteLabelModel
-            const penalty =
-              getRouteLabelPlacementPenalty(
-                candidateLabel,
-                placedLabels,
-                progressOffset
-              ) +
-              routeIndex * 44 +
-              Math.abs(laneOffset) * 18 +
-              (offsetScale - 1) * 12
-
-            if (penalty < bestPenalty) {
-              bestPenalty = penalty
-              bestLabel = {
-                ...candidateLabel,
-                score: penalty,
-              }
-            }
+          if (!anchor) {
+            continue
           }
+
+          const candidate = {
+            angle: anchor.angle,
+            componentId: route.componentId,
+            height,
+            isFocused,
+            label,
+            manufacturerId: route.manufacturerId,
+            priority,
+            routeId: route.id,
+            style,
+            width,
+            x: anchor.x,
+            y: anchor.y,
+          } satisfies RouteCaptionModel
+          const withinBounds =
+            candidate.x - candidate.width / 2 >= ROUTE_CAPTION_MARGIN_X &&
+            candidate.x + candidate.width / 2 <= 100 - ROUTE_CAPTION_MARGIN_X &&
+            candidate.y - candidate.height / 2 >= ROUTE_CAPTION_MARGIN_Y &&
+            candidate.y + candidate.height / 2 <= 100 - ROUTE_CAPTION_MARGIN_Y
+
+          if (!withinBounds) {
+            continue
+          }
+
+          if (
+            placedCaptions.some((placedCaption) =>
+              captionsOverlap(candidate, placedCaption)
+            )
+          ) {
+            continue
+          }
+
+          placedCaptions.push(candidate)
+          break
         }
-      }
+      })
 
-      if (bestLabel) {
-        placedLabels.push(bestLabel)
-      }
-    }
-
-    return resolveRouteLabelCollisions(placedLabels)
+    return placedCaptions.sort((left, right) => left.priority - right.priority)
   }, [
+    componentById,
+    componentIndexById,
+    activeRouteByComponentId,
     hoveredFocus,
-    pinnedManufacturerByComponent,
     rotation,
-    routeLabelMotion,
-    routeModels,
+    routeStyleByRouteId,
     scenario.components,
     selectedFocus,
   ])
+  useEffect(() => {
+    routeCaptionTargetsRef.current = routeCaptionTargets
+
+    routeCaptionTargets.forEach((caption) => {
+      if (routeCaptionStatesRef.current.has(caption.routeId)) {
+        return
+      }
+
+      routeCaptionStatesRef.current.set(caption.routeId, {
+        angle: caption.angle,
+        model: caption,
+        opacity: 0,
+        x: caption.x,
+        y: caption.y,
+      })
+    })
+  }, [routeCaptionTargets])
   const productOrbitLabel = useMemo(() => {
     const point = pointOnQuadratic(
       PRODUCT_ORBIT.start,
@@ -1583,14 +1600,21 @@ export function InteractiveGlobe({
       active:
         selectedNodeId === scenario.product.id ||
         hoveredNodeId === scenario.product.id,
-      height: 6.2,
+      height: 5.9,
       id: scenario.product.id,
       label: scenario.product.label,
-      width: Math.max(24, scenario.product.label.length * 1.8 + 10),
+      width: Math.max(24, scenario.product.label.length * 1.76 + 9.4),
       x: roundForSvg(point.x),
       y: roundForSvg(point.y),
     }
   }, [hoveredNodeId, scenario.product, selectedNodeId])
+  const visibleRouteCaptions =
+    renderedRouteCaptions.length > 0
+      ? renderedRouteCaptions
+      : routeCaptionTargets.map((caption) => ({
+          ...caption,
+          opacity: 1,
+        }))
 
   function updateRotation(nextRotation: RotationState) {
     rotationRef.current = {
@@ -1704,40 +1728,6 @@ export function InteractiveGlobe({
           }
         }
 
-        @keyframes globe-label-breathe {
-          0%, 100% {
-            transform: translateY(0px);
-          }
-
-          50% {
-            transform: translateY(-1px);
-          }
-        }
-
-        @keyframes globe-label-pulse {
-          0%, 100% {
-            opacity: 0.94;
-            transform: scale(1);
-          }
-
-          50% {
-            opacity: 1;
-            transform: scale(1.015);
-          }
-        }
-
-        @keyframes globe-label-dot-pulse {
-          0%, 100% {
-            opacity: 0.58;
-            transform: scale(1);
-          }
-
-          50% {
-            opacity: 0.94;
-            transform: scale(1.22);
-          }
-        }
-
         .globe-route-draw {
           animation-duration: 1.05s;
           animation-fill-mode: both;
@@ -1745,22 +1735,8 @@ export function InteractiveGlobe({
           animation-timing-function: cubic-bezier(0.2, 0.9, 0.2, 1);
         }
 
-        .globe-floating-label {
-          animation: globe-label-breathe 3.4s ease-in-out infinite;
-          transform-box: fill-box;
-          transform-origin: center;
-        }
-
-        .globe-floating-label-pulse {
-          animation: globe-label-pulse 5.8s ease-in-out infinite;
-          transform-box: fill-box;
-          transform-origin: center;
-        }
-
-        .globe-floating-label-dot {
-          animation: globe-label-dot-pulse 4.6s ease-in-out infinite;
-          transform-box: fill-box;
-          transform-origin: center;
+        .globe-route-caption {
+          transition: fill 260ms ease, stroke 260ms ease, opacity 180ms ease;
         }
       `}</style>
       <div className="absolute inset-[7%] rounded-full border border-white/[0.09] shadow-[0_0_18px_rgba(145,128,176,0.02)]" />
@@ -1777,15 +1753,21 @@ export function InteractiveGlobe({
             <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} />
           </clipPath>
           <radialGradient id={`${clipPathId}-surface`} cx="40%" cy="34%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.11" />
-            <stop offset="28%" stopColor="#ffffff" stopOpacity="0.055" />
-            <stop offset="68%" stopColor="#ffffff" stopOpacity="0.016" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            <stop
+              offset="0%"
+              stopColor={GLOBE_SURFACE_THEME.surfaceHighlight}
+            />
+            <stop offset="28%" stopColor={GLOBE_SURFACE_THEME.surfaceMid} />
+            <stop offset="68%" stopColor={GLOBE_SURFACE_THEME.surfaceEdge} />
+            <stop offset="100%" stopColor={GLOBE_SURFACE_THEME.surfaceEdge} />
           </radialGradient>
           <radialGradient id={`${clipPathId}-core-shadow`} cx="66%" cy="70%">
-            <stop offset="0%" stopColor="#000000" stopOpacity="0.02" />
-            <stop offset="48%" stopColor="#000000" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#000000" stopOpacity="0.34" />
+            <stop offset="0%" stopColor={GLOBE_SURFACE_THEME.coreShadowWeak} />
+            <stop offset="48%" stopColor="rgba(0,0,0,0.12)" />
+            <stop
+              offset="100%"
+              stopColor={GLOBE_SURFACE_THEME.coreShadowStrong}
+            />
           </radialGradient>
           <linearGradient
             id={`${clipPathId}-rim`}
@@ -1794,17 +1776,17 @@ export function InteractiveGlobe({
             x2="86%"
             y2="86%"
           >
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.78" />
-            <stop offset="28%" stopColor="#ffffff" stopOpacity="0.24" />
-            <stop offset="70%" stopColor="#cdbde2" stopOpacity="0.08" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.06" />
+            <stop offset="0%" stopColor={GLOBE_SURFACE_THEME.rimStart} />
+            <stop offset="28%" stopColor={GLOBE_SURFACE_THEME.rimMid} />
+            <stop offset="70%" stopColor={GLOBE_SURFACE_THEME.rimEnd} />
+            <stop offset="100%" stopColor={GLOBE_SURFACE_THEME.rimEnd} />
           </linearGradient>
           <radialGradient id={`${clipPathId}-atmosphere`} cx="42%" cy="36%">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-            <stop offset="86%" stopColor="#ffffff" stopOpacity="0" />
-            <stop offset="93%" stopColor="#d6caea" stopOpacity="0.05" />
-            <stop offset="98%" stopColor="#f7f4ff" stopOpacity="0.09" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="0%" stopColor="rgba(255,255,255,0)" />
+            <stop offset="86%" stopColor="rgba(255,255,255,0)" />
+            <stop offset="93%" stopColor={GLOBE_SURFACE_THEME.atmosphereHalo} />
+            <stop offset="98%" stopColor={GLOBE_SURFACE_THEME.atmosphereRim} />
+            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
           </radialGradient>
           <linearGradient
             id={`${clipPathId}-atmosphere-stroke`}
@@ -1813,16 +1795,25 @@ export function InteractiveGlobe({
             x2="84%"
             y2="82%"
           >
-            <stop offset="0%" stopColor="#f8f5ff" stopOpacity="0.28" />
-            <stop offset="34%" stopColor="#dbcff0" stopOpacity="0.09" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.02" />
+            <stop
+              offset="0%"
+              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeStart}
+            />
+            <stop
+              offset="34%"
+              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeMid}
+            />
+            <stop
+              offset="100%"
+              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeEnd}
+            />
           </linearGradient>
         </defs>
 
         <path
           d={orbitPath(PRODUCT_ORBIT)}
           fill="none"
-          stroke="rgba(164,153,190,0.16)"
+          stroke={GLOBE_SURFACE_THEME.orbitStroke}
           strokeWidth="0.32"
         />
 
@@ -1872,7 +1863,7 @@ export function InteractiveGlobe({
               key={`lat-back-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.045)"
+              stroke={GLOBE_SURFACE_THEME.backGrid}
               strokeWidth="0.18"
             />
           ))}
@@ -1882,7 +1873,7 @@ export function InteractiveGlobe({
               key={`lon-back-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.04)"
+              stroke={GLOBE_SURFACE_THEME.backGrid}
               strokeWidth="0.18"
             />
           ))}
@@ -1892,7 +1883,7 @@ export function InteractiveGlobe({
               key={`country-back-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.05)"
+              stroke={GLOBE_SURFACE_THEME.countryBack}
               strokeDasharray="1.1 1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -1905,7 +1896,7 @@ export function InteractiveGlobe({
               key={`continent-back-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.08)"
+              stroke="rgba(220,236,229,0.07)"
               strokeDasharray="1.8 2.6"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -1918,7 +1909,7 @@ export function InteractiveGlobe({
               key={`lat-secondary-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.06)"
+              stroke={GLOBE_SURFACE_THEME.secondaryGrid}
               strokeWidth="0.18"
             />
           ))}
@@ -1928,7 +1919,7 @@ export function InteractiveGlobe({
               key={`lon-secondary-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.055)"
+              stroke={GLOBE_SURFACE_THEME.secondaryGrid}
               strokeWidth="0.18"
             />
           ))}
@@ -1938,7 +1929,7 @@ export function InteractiveGlobe({
               key={`lat-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.11)"
+              stroke="rgba(223,238,231,0.094)"
               strokeWidth="0.22"
             />
           ))}
@@ -1948,7 +1939,7 @@ export function InteractiveGlobe({
               key={`lon-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.09)"
+              stroke="rgba(223,238,231,0.084)"
               strokeWidth="0.22"
             />
           ))}
@@ -1958,7 +1949,7 @@ export function InteractiveGlobe({
               key={`country-glow-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.1)"
+              stroke={GLOBE_SURFACE_THEME.countryGlow}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="0.76"
@@ -1971,7 +1962,7 @@ export function InteractiveGlobe({
               key={`continent-glow-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.19)"
+              stroke="rgba(188,222,208,0.15)"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.34"
@@ -1984,7 +1975,7 @@ export function InteractiveGlobe({
               key={`country-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.34)"
+              stroke={GLOBE_SURFACE_THEME.countryFront}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="0.3"
@@ -1996,7 +1987,7 @@ export function InteractiveGlobe({
               key={`continent-${index}`}
               d={path}
               fill="none"
-              stroke="rgba(255,255,255,0.94)"
+              stroke="rgba(229,242,236,0.82)"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="0.7"
@@ -2011,6 +2002,8 @@ export function InteractiveGlobe({
             }
 
             const palette = getEcoRoutePalette(manufacturer.ecoScore)
+            const route = routeByManufacturerId.get(manufacturer.id)
+            const routeStyle = route ? routeStyleByRouteId.get(route.id) : null
             const focused =
               selectedNodeId === manufacturer.id ||
               hoveredNodeId === manufacturer.id ||
@@ -2018,12 +2011,35 @@ export function InteractiveGlobe({
               hoveredFocus?.componentId === manufacturer.componentId
             const pinned = pinnedManufacturerIds.has(manufacturer.id)
             const radius = focused
-              ? 1.85
+              ? 1.74
               : pinned
-                ? 1.58
+                ? 1.48
                 : manufacturer.isCurrent
-                  ? 1.4
-                  : 1.1
+                  ? 1.32
+                  : 1.02
+            const routeCoreColor = routeStyle
+              ? withAlpha(
+                  routeStyle.coreColor,
+                  focused || pinned || manufacturer.isCurrent ? 1 : 0.9
+                )
+              : manufacturer.isCurrent || pinned
+                ? palette.coreStrong
+                : palette.coreSoft
+            const routeGlowColor = routeStyle
+              ? withAlpha(
+                  routeStyle.glowColor,
+                  clamp(routeStyle.glowOpacity + 0.08, 0.14, 0.84)
+                )
+              : palette.glowMedium
+            const routeMarkerFill =
+              focused || pinned || manufacturer.isCurrent
+                ? routeCoreColor
+                : palette.pulseMedium
+            const routeMarkerStroke = focused
+              ? routeCoreColor
+              : pinned || manufacturer.isCurrent
+                ? withAlpha(routeCoreColor, 0.92)
+                : palette.coreSoft
 
             return (
               <g
@@ -2037,28 +2053,28 @@ export function InteractiveGlobe({
                   <circle
                     cx={site.point.x}
                     cy={site.point.y}
-                    r={radius + 2.4}
-                    fill={palette.glowFaint}
-                    opacity={manufacturer.isCurrent || pinned ? 0.42 : 0.28}
-                    stroke={palette.glowMedium}
+                    r={radius + 1.95}
+                    fill={routeGlowColor}
+                    opacity={manufacturer.isCurrent || pinned ? 0.28 : 0.18}
+                    stroke={routeCoreColor}
                     strokeWidth="0.2"
                   >
                     <animate
                       attributeName="r"
                       begin={`${manufacturer.isCurrent || pinned ? 0.2 : 0.6}s`}
-                      dur={manufacturer.isCurrent || pinned ? "2.9s" : "2.3s"}
+                      dur={manufacturer.isCurrent || pinned ? "3.4s" : "2.8s"}
                       repeatCount="indefinite"
-                      values={`${radius + 1.4};${radius + 3.4};${radius + 1.4}`}
+                      values={`${radius + 1.2};${radius + 2.65};${radius + 1.2}`}
                     />
                     <animate
                       attributeName="opacity"
                       begin={`${manufacturer.isCurrent || pinned ? 0.2 : 0.6}s`}
-                      dur={manufacturer.isCurrent || pinned ? "2.9s" : "2.3s"}
+                      dur={manufacturer.isCurrent || pinned ? "3.4s" : "2.8s"}
                       repeatCount="indefinite"
                       values={
                         manufacturer.isCurrent || pinned
-                          ? "0.3;0.08;0.3"
-                          : "0.24;0.06;0.24"
+                          ? "0.22;0.05;0.22"
+                          : "0.16;0.04;0.16"
                       }
                     />
                   </circle>
@@ -2067,9 +2083,9 @@ export function InteractiveGlobe({
                   <circle
                     cx={site.point.x}
                     cy={site.point.y}
-                    r={radius + 2.1}
-                    fill={palette.glowFaint}
-                    stroke={palette.coreSoft}
+                    r={radius + 1.7}
+                    fill={routeGlowColor}
+                    stroke={routeCoreColor}
                     strokeWidth="0.34"
                   />
                 ) : null}
@@ -2077,18 +2093,8 @@ export function InteractiveGlobe({
                   cx={site.point.x}
                   cy={site.point.y}
                   r={radius}
-                  fill={
-                    manufacturer.isCurrent || pinned
-                      ? palette.pulseStrong
-                      : palette.pulseMedium
-                  }
-                  stroke={
-                    focused
-                      ? palette.coreStrong
-                      : pinned
-                        ? palette.coreMedium
-                        : palette.coreSoft
-                  }
+                  fill={routeMarkerFill}
+                  stroke={routeMarkerStroke}
                   strokeWidth="0.3"
                 >
                   <animate
@@ -2117,32 +2123,32 @@ export function InteractiveGlobe({
               <circle
                 cx={projectedDestination.point.x}
                 cy={projectedDestination.point.y}
-                r={5.6}
-                fill="rgba(255,255,255,0.06)"
-                stroke="rgba(196,184,220,0.16)"
+                r={5.2}
+                fill={GLOBE_SURFACE_THEME.destinationGlow}
+                stroke={GLOBE_SURFACE_THEME.destinationStroke}
                 strokeWidth="0.2"
               >
                 <animate
                   attributeName="r"
                   begin="0.35s"
-                  dur="3.2s"
+                  dur="3.5s"
                   repeatCount="indefinite"
-                  values="4.7;6.5;4.7"
+                  values="4.5;6.1;4.5"
                 />
                 <animate
                   attributeName="opacity"
                   begin="0.35s"
-                  dur="3.2s"
+                  dur="3.5s"
                   repeatCount="indefinite"
-                  values="0.22;0.06;0.22"
+                  values="0.18;0.04;0.18"
                 />
               </circle>
               <circle
                 cx={projectedDestination.point.x}
                 cy={projectedDestination.point.y}
-                r={4.7}
-                fill="rgba(255,255,255,0.08)"
-                stroke="rgba(255,255,255,0.22)"
+                r={4.2}
+                fill="rgba(255,255,255,0.06)"
+                stroke={GLOBE_SURFACE_THEME.destinationStroke}
                 strokeWidth="0.36"
               >
                 <animate
@@ -2157,9 +2163,9 @@ export function InteractiveGlobe({
               <circle
                 cx={projectedDestination.point.x}
                 cy={projectedDestination.point.y}
-                r={2.05}
-                fill="#FFFFFF"
-                stroke="rgba(201,190,226,0.42)"
+                r={1.92}
+                fill={GLOBE_SURFACE_THEME.destinationFill}
+                stroke={GLOBE_SURFACE_THEME.destinationStroke}
                 strokeWidth="0.3"
               >
                 <animate
@@ -2168,7 +2174,7 @@ export function InteractiveGlobe({
                   dur="0.55s"
                   fill="freeze"
                   from="0.1"
-                  to="2.05"
+                  to="1.92"
                 />
               </circle>
             </g>
@@ -2176,75 +2182,170 @@ export function InteractiveGlobe({
         </g>
 
         {routeSegments.map(
-          ({ drawDelay, id, manufacturerId, path, pulseBegin, style }) => (
-            <g
-              key={id}
-              onClick={() => onSelectNode(manufacturerId)}
-              onPointerEnter={() => onHoverNode(manufacturerId)}
-              onPointerLeave={() => onHoverNode(null)}
-              style={{ cursor: "pointer" }}
-            >
-              <path
-                d={path}
-                fill="none"
-                stroke="transparent"
-                strokeWidth={7}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d={path}
-                fill="none"
-                pathLength={100}
-                stroke={style.glowColor}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeOpacity={style.glowOpacity}
-                strokeDasharray="100"
-                strokeWidth={style.glowWidth}
-                className="globe-route-draw"
-                style={{
-                  animationDelay: drawDelay,
-                }}
-              />
-              <path
-                d={path}
-                fill="none"
-                pathLength={100}
-                stroke={style.coreColor}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeOpacity={style.coreOpacity}
-                strokeDasharray="100"
-                strokeWidth={style.coreWidth}
-                className="globe-route-draw"
-                style={{
-                  animationDelay: drawDelay,
-                }}
-              />
-              <path
-                d={path}
-                fill="none"
-                pathLength={100}
-                stroke={style.pulseColor}
-                strokeDasharray={style.pulseDash}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeOpacity={style.pulseOpacity}
-                strokeWidth={style.pulseWidth}
+          ({
+            drawDelay,
+            id,
+            manufacturerId,
+            path,
+            pulseBegin,
+            route,
+            style,
+          }) => {
+            const showSustainableHighlight =
+              route.isMostSustainable &&
+              pinnedManufacturerByComponent[route.componentId] ===
+                route.manufacturerId
+
+            return (
+              <g
+                key={id}
+                onClick={() => onSelectNode(manufacturerId)}
+                onPointerEnter={() => onHoverNode(manufacturerId)}
+                onPointerLeave={() => onHoverNode(null)}
+                style={{ cursor: "pointer" }}
               >
-                <animate
-                  attributeName="stroke-dashoffset"
-                  begin={pulseBegin}
-                  dur={style.pulseDuration}
-                  from="120"
-                  repeatCount="indefinite"
-                  to="0"
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={7}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 />
-              </path>
-            </g>
-          )
+                {showSustainableHighlight ? (
+                  <>
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={
+                        style.priority >= 4
+                          ? style.highlightGlowStrong
+                          : style.highlightGlowSoft
+                      }
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={style.glowWidth + 1.32}
+                      style={{
+                        filter:
+                          style.priority >= 4 ? "blur(5.4px)" : "blur(4px)",
+                        transition:
+                          "stroke 260ms ease, stroke-width 260ms ease, filter 260ms ease",
+                      }}
+                    />
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={style.highlightCore}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeOpacity={Math.min(0.88, style.coreOpacity + 0.14)}
+                      strokeWidth={style.coreWidth + 0.14}
+                      style={{
+                        transition:
+                          "stroke 260ms ease, stroke-opacity 260ms ease, stroke-width 260ms ease",
+                      }}
+                    />
+                  </>
+                ) : null}
+                <path
+                  d={path}
+                  fill="none"
+                  pathLength={100}
+                  stroke={style.glowColor}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity={style.glowOpacity}
+                  strokeDasharray="100"
+                  strokeWidth={style.glowWidth}
+                  className="globe-route-draw"
+                  style={{
+                    animationDelay: drawDelay,
+                    transition:
+                      "stroke 260ms ease, stroke-opacity 260ms ease, stroke-width 260ms ease",
+                  }}
+                />
+                <path
+                  d={path}
+                  fill="none"
+                  pathLength={100}
+                  stroke={style.coreColor}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity={style.coreOpacity}
+                  strokeDasharray="100"
+                  strokeWidth={style.coreWidth}
+                  className="globe-route-draw"
+                  style={{
+                    animationDelay: drawDelay,
+                    transition:
+                      "stroke 260ms ease, stroke-opacity 260ms ease, stroke-width 260ms ease",
+                  }}
+                />
+                <path
+                  d={path}
+                  fill="none"
+                  pathLength={100}
+                  stroke={style.pulseColor}
+                  strokeDasharray={style.pulseDash}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeOpacity={style.pulseOpacity}
+                  strokeWidth={style.pulseWidth}
+                  style={{
+                    transition:
+                      "stroke 260ms ease, stroke-opacity 260ms ease, stroke-width 260ms ease",
+                  }}
+                >
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    begin={pulseBegin}
+                    dur={style.pulseDuration}
+                    from="120"
+                    repeatCount="indefinite"
+                    to="0"
+                  />
+                </path>
+              </g>
+            )
+          }
         )}
+
+        {projectedDestination && destinationLabel ? (
+          <g className="pointer-events-none">
+            <path
+              d={`M ${projectedDestination.point.x.toFixed(2)} ${projectedDestination.point.y.toFixed(2)} L ${(projectedDestination.point.x + destinationLabel.side * 3.1).toFixed(2)} ${(projectedDestination.point.y - 2.1).toFixed(2)} L ${(destinationLabel.x - destinationLabel.side * (destinationLabel.width / 2 - 1.2)).toFixed(2)} ${destinationLabel.y.toFixed(2)}`}
+              fill="none"
+              stroke={GLOBE_SURFACE_THEME.destinationStroke}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="0.34"
+            />
+            <rect
+              x={destinationLabel.x - destinationLabel.width / 2}
+              y={destinationLabel.y - destinationLabel.height / 2}
+              width={destinationLabel.width}
+              height={destinationLabel.height}
+              rx={destinationLabel.height / 2}
+              fill={GLOBE_SURFACE_THEME.labelFill}
+              stroke={GLOBE_SURFACE_THEME.labelStroke}
+              strokeWidth="0.28"
+            />
+            <text
+              x={destinationLabel.x}
+              y={destinationLabel.y + 0.7}
+              fill={GLOBE_SURFACE_THEME.labelText}
+              fontSize="1.9"
+              fontWeight="600"
+              letterSpacing="0.01em"
+              stroke={GLOBE_SURFACE_THEME.shadowFill}
+              strokeWidth="0.42"
+              paintOrder="stroke"
+              textAnchor="middle"
+            >
+              {destinationLabel.label}
+            </text>
+          </g>
+        ) : null}
 
         <ellipse
           cx={GLOBE_CENTER}
@@ -2253,7 +2354,7 @@ export function InteractiveGlobe({
           ry={GLOBE_RADIUS * 0.42}
           fill="none"
           opacity={0.78}
-          stroke="rgba(255,255,255,0.22)"
+          stroke={GLOBE_SURFACE_THEME.terminatorStroke}
           strokeWidth="0.32"
         />
 
@@ -2271,13 +2372,13 @@ export function InteractiveGlobe({
             rx={productOrbitLabel.height / 2}
             fill={
               productOrbitLabel.active
-                ? "rgba(97,82,126,0.34)"
-                : "rgba(10,10,18,0.72)"
+                ? GLOBE_SURFACE_THEME.labelFillStrong
+                : GLOBE_SURFACE_THEME.labelFill
             }
             stroke={
               productOrbitLabel.active
-                ? "rgba(204,193,228,0.42)"
-                : "rgba(255,255,255,0.14)"
+                ? GLOBE_SURFACE_THEME.productActiveStroke
+                : GLOBE_SURFACE_THEME.productStroke
             }
             strokeWidth="0.3"
           />
@@ -2285,93 +2386,76 @@ export function InteractiveGlobe({
             x={productOrbitLabel.x}
             y={productOrbitLabel.y + 0.8}
             fill={
-              productOrbitLabel.active ? "#FFFFFF" : "rgba(255,255,255,0.82)"
+              productOrbitLabel.active
+                ? GLOBE_SURFACE_THEME.labelText
+                : GLOBE_SURFACE_THEME.titleMuted
             }
-            fontSize="2.3"
+            fontSize="2.18"
             fontWeight="600"
+            letterSpacing="0.01em"
+            stroke={GLOBE_SURFACE_THEME.shadowFill}
+            strokeWidth="0.4"
+            paintOrder="stroke"
             textAnchor="middle"
           >
             {productOrbitLabel.label}
           </text>
         </g>
 
-        {dynamicComponentLabels.map((label) => {
-          const palette = getEcoRoutePalette(label.ecoScore)
-          const leaderPath = getRouteLabelLeaderPath(label)
+        {visibleRouteCaptions.map((caption) => {
+          const accentStroke = withAlpha(
+            caption.style.coreColor,
+            caption.isFocused ? 0.42 : 0.28
+          )
+          const captionFill = caption.isFocused
+            ? GLOBE_SURFACE_THEME.labelFillStrong
+            : GLOBE_SURFACE_THEME.labelFill
+          const captionTextColor = caption.isFocused
+            ? GLOBE_SURFACE_THEME.labelText
+            : "rgba(233,243,238,0.9)"
+          const fontSize = caption.isFocused ? 2.12 : 1.96
+          const fontWeight = caption.isFocused ? 700 : 600
 
           return (
             <g
-              key={`route-label-${label.componentId}`}
-              className={
-                label.isCurrent
-                  ? "globe-floating-label globe-floating-label-pulse"
-                  : "globe-floating-label"
-              }
-              onClick={() => onSelectNode(label.componentId)}
-              onPointerEnter={() => onHoverNode(label.manufacturerId)}
-              onPointerLeave={() => onHoverNode(null)}
-              style={{ cursor: "pointer" }}
+              key={`route-caption-${caption.routeId}`}
+              transform={`rotate(${caption.angle} ${caption.x} ${caption.y})`}
+              opacity={caption.opacity}
             >
-              {leaderPath ? (
-                <>
-                  <path
-                    d={leaderPath}
-                    fill="none"
-                    stroke={
-                      label.isCurrent ? palette.glowStrong : palette.glowMedium
-                    }
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={0.34}
-                  />
-                  <circle
-                    cx={label.routeX}
-                    cy={label.routeY}
-                    r={0.48}
-                    className={
-                      label.isCurrent ? "globe-floating-label-dot" : undefined
-                    }
-                    fill={
-                      label.isCurrent
-                        ? palette.pulseStrong
-                        : palette.pulseMedium
-                    }
-                    stroke={
-                      label.isCurrent ? palette.coreStrong : palette.coreSoft
-                    }
-                    strokeWidth={0.12}
-                  />
-                </>
-              ) : null}
-              <rect
-                x={label.x - label.width / 2}
-                y={label.y - label.height / 2}
-                width={label.width}
-                height={label.height}
-                rx={label.height / 2}
-                fill={
-                  label.isCurrent ? "rgba(46,39,61,0.86)" : "rgba(22,19,30,0.9)"
-                }
-                stroke={
-                  label.isCurrent
-                    ? "rgba(214,204,236,0.42)"
-                    : "rgba(192,182,214,0.22)"
-                }
-                strokeWidth="0.32"
-              />
-              <text
-                x={label.x}
-                y={label.y + 0.72}
-                fill="#FFFFFF"
-                fontSize="2.12"
-                fontWeight="600"
-                paintOrder="stroke"
-                stroke="rgba(5,5,10,0.82)"
-                strokeWidth="0.46"
-                textAnchor="middle"
+              <g
+                onClick={() => onSelectNode(caption.manufacturerId)}
+                onPointerEnter={() => onHoverNode(caption.manufacturerId)}
+                onPointerLeave={() => onHoverNode(null)}
+                style={{ cursor: "pointer" }}
               >
-                {label.label}
-              </text>
+                <rect
+                  className="globe-route-caption"
+                  x={caption.x - caption.width / 2}
+                  y={caption.y - caption.height / 2}
+                  width={caption.width}
+                  height={caption.height}
+                  rx={caption.height / 2}
+                  fill={captionFill}
+                  stroke={accentStroke}
+                  strokeWidth={caption.isFocused ? 0.42 : 0.3}
+                />
+                <text
+                  className="globe-route-caption"
+                  x={caption.x}
+                  y={caption.y}
+                  dominantBaseline="middle"
+                  fill={captionTextColor}
+                  fontSize={fontSize}
+                  fontWeight={fontWeight}
+                  letterSpacing="0.01em"
+                  paintOrder="stroke"
+                  stroke={GLOBE_SURFACE_THEME.shadowFill}
+                  strokeWidth={caption.isFocused ? 0.44 : 0.34}
+                  textAnchor="middle"
+                >
+                  {caption.label}
+                </text>
+              </g>
             </g>
           )
         })}
