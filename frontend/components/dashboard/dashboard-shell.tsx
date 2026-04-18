@@ -4,13 +4,18 @@ import { startTransition, useDeferredValue, useState } from "react"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
+import { Button } from "@/components/ui/button"
 import { type SupplyChainSnapshot } from "@/lib/mock-supply-chain"
 
 interface DashboardShellProps {
   data: SupplyChainSnapshot
+  onRestartOnboarding?: () => void
 }
 
-export function DashboardShell({ data }: DashboardShellProps) {
+export function DashboardShell({
+  data,
+  onRestartOnboarding,
+}: DashboardShellProps) {
   const [selectedEntityId, setSelectedEntityId] = useState(
     data.entities[2]?.id ?? data.entities[0]?.id
   )
@@ -34,7 +39,20 @@ export function DashboardShell({ data }: DashboardShellProps) {
               Interactive supply chain graph · geographic intelligence
             </p>
           </div>
-          <div className="text-sm text-muted-foreground">{data.updatedAt}</div>
+          <div className="flex items-center gap-3">
+            {onRestartOnboarding ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onRestartOnboarding}
+                className="rounded-full text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              >
+                Restart onboarding
+              </Button>
+            ) : null}
+            <div className="text-sm text-muted-foreground">{data.updatedAt}</div>
+          </div>
         </header>
 
         <section className="grid flex-1 gap-4 lg:grid-cols-[1.45fr_minmax(360px,0.9fr)]">

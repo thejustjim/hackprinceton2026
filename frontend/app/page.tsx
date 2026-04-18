@@ -1,6 +1,5 @@
-import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { supplyChainSnapshot } from "@/lib/mock-supply-chain"
+import { OnboardingFlow } from "@/components/onboarding/onboarding-flow"
 
 export default function Page() {
-  return <DashboardShell data={supplyChainSnapshot} />
+  return <OnboardingFlow />
 }
