@@ -24,10 +24,16 @@ export function OnboardingFlow() {
   }
 
   if (isComplete) {
+    const noop = () => {}
     return (
       <DashboardShell
+        error={null}
+        onFile={noop}
+        onReset={noop}
         onRestartOnboarding={restartOnboarding}
+        onUseDemo={noop}
         scenario={sampleSupplyScenario}
+        status="idle"
       />
     )
   }
