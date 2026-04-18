@@ -4,12 +4,14 @@ import { startTransition, useEffect, useMemo, useState } from "react"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
+import { Button } from "@/components/ui/button"
 import {
   type SupplyScenario,
   type SupplyScenarioSelectableNodeId,
 } from "@/lib/supply-chain-scenario"
 
 interface DashboardShellProps {
+  onRestartOnboarding?: () => void
   scenario: SupplyScenario
 }
 
@@ -32,7 +34,10 @@ function createPinnedManufacturerByComponent(scenario: SupplyScenario) {
   )
 }
 
-export function DashboardShell({ scenario }: DashboardShellProps) {
+export function DashboardShell({
+  onRestartOnboarding,
+  scenario,
+}: DashboardShellProps) {
   const [selectedNodeId, setSelectedNodeId] =
     useState<SupplyScenarioSelectableNodeId | null>(null)
   const [hoveredNodeId, setHoveredNodeId] =
@@ -90,8 +95,21 @@ export function DashboardShell({ scenario }: DashboardShellProps) {
               Interactive supply chain graph · geographic intelligence
             </p>
           </div>
-          <div className="text-sm text-muted-foreground">
-            {scenario.updatedAt}
+          <div className="flex items-center gap-3">
+            {onRestartOnboarding ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onRestartOnboarding}
+                className="rounded-full text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              >
+                Restart onboarding
+              </Button>
+            ) : null}
+            <div className="text-sm text-muted-foreground">
+              {scenario.updatedAt}
+            </div>
           </div>
         </header>
 

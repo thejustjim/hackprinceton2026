@@ -152,6 +152,91 @@
     @apply relative min-h-svh overflow-hidden;
   }
 
+  .onboarding-shell {
+    @apply relative min-h-svh overflow-hidden bg-[#050816] text-white;
+    background-image:
+      radial-gradient(circle at 18% 18%, rgb(79 172 254 / 0.2), transparent 26%),
+      radial-gradient(circle at 82% 24%, rgb(255 255 255 / 0.08), transparent 22%),
+      linear-gradient(135deg, #050816 0%, #07111d 44%, #0f1726 100%);
+  }
+
+  .onboarding-shell::before {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+    background-size: 72px 72px;
+    content: "";
+    inset: 0;
+    opacity: 0.24;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .onboarding-noise {
+    background-image: radial-gradient(
+      circle at center,
+      rgb(255 255 255 / 0.06) 0,
+      transparent 56%
+    );
+    inset: 0;
+    opacity: 0.85;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .onboarding-orb {
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    filter: blur(10px);
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .onboarding-orb-a {
+    background: radial-gradient(
+      circle,
+      rgb(103 232 249 / 0.36) 0,
+      rgb(103 232 249 / 0.05) 58%,
+      transparent 72%
+    );
+    height: 26rem;
+    right: -8rem;
+    top: -8rem;
+  }
+
+  .onboarding-orb-b {
+    background: radial-gradient(
+      circle,
+      rgb(167 139 250 / 0.24) 0,
+      rgb(167 139 250 / 0.04) 54%,
+      transparent 72%
+    );
+    bottom: -10rem;
+    height: 30rem;
+    left: -8rem;
+  }
+
+  .onboarding-rail {
+    @apply relative min-h-[24rem] border-b border-white/8 bg-black/10;
+  }
+
+  .onboarding-summary {
+    @apply border-t border-white/8 bg-black/10 lg:border-t-0;
+  }
+
+  @media (width >= 64rem) {
+    .onboarding-rail {
+      border-bottom: 0;
+      border-right: 1px solid rgb(255 255 255 / 0.08);
+      min-height: 100svh;
+    }
+
+    .onboarding-summary {
+      border-left: 1px solid rgb(255 255 255 / 0.08);
+      min-height: 100svh;
+    }
+  }
+
   .dashboard-shell::before {
     background-image:
       linear-gradient(to right, var(--dashboard-grid) 1px, transparent 1px),
