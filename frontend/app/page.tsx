@@ -1,8 +1,17 @@
 "use client"
 
-import { useEffect, useEffectEvent, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import Image from "next/image"
 import Link from "next/link"
+import * as THREE from "three"
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { cn } from "@/lib/utils"
@@ -58,13 +67,6 @@ const HERO_SIGNALS = [
   },
 ] as const
 
-const IMPACT_STATS: Metric[] = [
-  { value: 5, suffix: "", label: "impact dimensions" },
-  { value: 4, suffix: "", label: "shipping modes" },
-  { value: 180, suffix: "+", label: "country data points" },
-  { value: 60, suffix: "s", label: "comparison time" },
-]
-
 const FEATURES: Feature[] = [
   {
     img: IMG.warehouse,
@@ -102,12 +104,6 @@ const FEATURES: Feature[] = [
       "Clearer context for transport choices",
     ],
   },
-]
-
-const MANIFESTO_BULLETS = [
-  "Manufacturing emissions estimated from industry, country, and energy context",
-  "Transport emissions compared directly across sea, air, rail, and road",
-  "Grid intensity, certifications, and climate risk included in the score",
 ]
 
 const clamp = (value: number, min: number, max: number) =>
@@ -150,31 +146,232 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion
 }
 
-function useCountUp(target: number, active: boolean, duration = 1400) {
+function usePrefersReducedMotionSnapshot() {
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
+      mediaQuery.addEventListener("change", onStoreChange)
+      return () => mediaQuery.removeEventListener("change", onStoreChange)
+    },
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => false,
+  )
+}
+
+function useHydrated() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  )
+}
+
+function easeOutQuart(x: number) {
+  return 1 - Math.pow(1 - x, 4)
+}
+
+function LandingIntro({
+  active,
+  mode,
+  onDone,
+}: {
+  active: boolean
+  mode: "full" | "instant"
+  onDone: () => void
+}) {
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
+
   const [count, setCount] = useState(0)
-  const prefersReducedMotion = usePrefersReducedMotion()
+  const [statusIndex, setStatusIndex] = useState(0)
+  const [fadeCounter, setFadeCounter] = useState(false)
+  const [wipePanels, setWipePanels] = useState(false)
+  const [hidden, setHidden] = useState(false)
 
   useEffect(() => {
     if (!active) return
+    if (mode !== "instant") return
 
-    if (prefersReducedMotion) return
+    setCount(100)
+    setStatusIndex(4)
+    setFadeCounter(true)
 
-    let frame = 0
+    const timeouts: number[] = []
+    timeouts.push(
+      window.setTimeout(() => {
+        setWipePanels(true)
+        timeouts.push(
+          window.setTimeout(() => {
+            setHidden(true)
+            onDoneRef.current()
+          }, 1100),
+        )
+      }, 120),
+    )
+
+    return () => {
+      for (const id of timeouts) window.clearTimeout(id)
+    }
+  }, [active, mode])
+
+  const statuses = useMemo(
+    () => [
+      "Initializing Core…",
+      "Loading High‑Res Assets…",
+      "Establishing Uplink…",
+      "Preparing Environment…",
+      "Systems Ready",
+    ],
+    [],
+  )
+
+  const ring = useMemo(() => {
+    const radius = 120
+    const circumference = radius * 2 * Math.PI
+    return { radius, circumference }
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    if (mode !== "full") return
+
+    let raf = 0
+    const timeouts: number[] = []
     const start = performance.now()
+    const DURATION = 2200
 
-    const step = (now: number) => {
-      const progress = clamp((now - start) / duration, 0, 1)
-      const eased = 1 - (1 - progress) ** 3
-      setCount(Math.round(target * eased))
+    const tick = (t: number) => {
+      const progress = clamp((t - start) / DURATION, 0, 1)
+      const eased = easeOutQuart(progress)
+      const pct = Math.floor(eased * 100)
 
-      if (progress < 1) frame = requestAnimationFrame(step)
+      setCount(pct)
+      setStatusIndex(
+        Math.min(Math.floor(eased * statuses.length), statuses.length - 1),
+      )
+
+      if (progress < 1) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+
+      // brief pause at 100% before the wipe
+      timeouts.push(
+        window.setTimeout(() => {
+          setFadeCounter(true)
+          timeouts.push(
+            window.setTimeout(() => {
+              setWipePanels(true)
+              timeouts.push(
+                window.setTimeout(() => {
+                  setHidden(true)
+                  onDoneRef.current()
+                }, 1100),
+              )
+            }, 420),
+          )
+        }, 420),
+      )
     }
 
-    frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
-  }, [active, duration, prefersReducedMotion, target])
+    raf = requestAnimationFrame(tick)
 
-  return active && prefersReducedMotion ? target : count
+    return () => {
+      cancelAnimationFrame(raf)
+      for (const id of timeouts) window.clearTimeout(id)
+    }
+  }, [active, mode, statuses.length])
+
+  const dashOffset = useMemo(() => {
+    const eased = easeOutQuart(count / 100)
+    return ring.circumference - eased * ring.circumference
+  }, [count, ring.circumference])
+
+  if (!active || hidden) return null
+
+  return (
+    <div
+      aria-hidden
+      className="landing-intro fixed inset-0 z-[100] select-none"
+    >
+      <div
+        className={cn("landing-intro__content", fadeCounter && "is-hidden")}
+      >
+        <div className="absolute left-7 top-7 text-[11px] font-medium uppercase tracking-[0.28em] text-white/40 md:left-10 md:top-9">
+          GreenChain
+        </div>
+
+        <div className="relative mb-12 mt-8 flex items-center justify-center">
+          <svg
+            className="absolute h-64 w-64 md:h-80 md:w-80"
+            viewBox="0 0 256 256"
+          >
+            <circle
+              className="text-white/10"
+              strokeWidth="1.5"
+              stroke="currentColor"
+              fill="transparent"
+              r={ring.radius}
+              cx="128"
+              cy="128"
+            />
+            <circle
+              className="landing-intro__ring text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.28)]"
+              strokeWidth="2"
+              stroke="currentColor"
+              fill="transparent"
+              r={ring.radius}
+              cx="128"
+              cy="128"
+              strokeLinecap="round"
+              style={{
+                strokeDasharray: `${ring.circumference} ${ring.circumference}`,
+                strokeDashoffset: dashOffset,
+              }}
+            />
+          </svg>
+
+          <div className="flex items-baseline gap-1">
+            <span className="text-6xl font-light tracking-[-0.06em] text-white md:text-8xl">
+              {count}
+            </span>
+            <span className="text-xl font-light text-white/40 md:text-3xl">
+              %
+            </span>
+          </div>
+        </div>
+
+        <div className="h-6 text-xs font-medium uppercase tracking-[0.28em] text-white/45 md:text-sm">
+          {statuses[statusIndex]}
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          "landing-intro__panel landing-intro__panel--1",
+          wipePanels && "is-hidden",
+        )}
+      />
+      <div
+        className={cn(
+          "landing-intro__panel landing-intro__panel--2",
+          wipePanels && "is-hidden",
+        )}
+      />
+      <div
+        className={cn(
+          "landing-intro__panel landing-intro__panel--3",
+          wipePanels && "is-hidden",
+        )}
+      />
+      <div
+        className={cn(
+          "landing-intro__panel landing-intro__panel--4",
+          wipePanels && "is-hidden",
+        )}
+      />
+    </div>
+  )
 }
 
 function Eyebrow({
@@ -268,7 +465,7 @@ function LineReveal({
   return (
     <div className={cn("space-y-1.5", className)}>
       {lines.map((line, index) => (
-        <div key={index} className="overflow-hidden">
+        <div key={index} className="overflow-hidden pb-[0.22em] pr-[0.04em]">
           <div
             className={cn(lineClass)}
             style={{
@@ -407,57 +604,186 @@ function TiltCard({
   )
 }
 
-function StatTile({
-  value,
-  suffix,
-  label,
-  active,
-}: Metric & { active: boolean }) {
-  const count = useCountUp(value, active)
+function HeroThreeField({ disabled }: { disabled: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    if (disabled) return
+
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
+
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120)
+    camera.position.set(0, 0.35, 6.2)
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: true,
+      powerPreference: "high-performance",
+    })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8))
+    renderer.setClearColor(0x000000, 0)
+
+    const ambientLight = new THREE.AmbientLight(0xbff8dd, 0.36)
+    const keyLight = new THREE.PointLight(0x62f5ae, 2.1, 26, 1.5)
+    keyLight.position.set(2.4, 3.1, 6.5)
+    const rimLight = new THREE.PointLight(0x5fd0ff, 1.2, 25, 1.5)
+    rimLight.position.set(-4.2, -0.8, 5.4)
+    scene.add(ambientLight, keyLight, rimLight)
+
+    const field = new THREE.Group()
+    scene.add(field)
+
+    const coreGeo = new THREE.IcosahedronGeometry(1.35, 2)
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0x91ffd0,
+      emissive: 0x2b905f,
+      emissiveIntensity: 0.35,
+      roughness: 0.18,
+      metalness: 0.2,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.34,
+    })
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat)
+    field.add(coreMesh)
+
+    const shellGeo = new THREE.TorusKnotGeometry(2.4, 0.08, 220, 28)
+    const shellMat = new THREE.MeshStandardMaterial({
+      color: 0xb8ffe2,
+      emissive: 0x2a9f71,
+      emissiveIntensity: 0.3,
+      roughness: 0.4,
+      metalness: 0.55,
+      transparent: true,
+      opacity: 0.27,
+    })
+    const shellMesh = new THREE.Mesh(shellGeo, shellMat)
+    shellMesh.rotation.x = 0.48
+    shellMesh.rotation.y = 0.22
+    field.add(shellMesh)
+
+    const particleCount = 1100
+    const particles = new Float32Array(particleCount * 3)
+    for (let i = 0; i < particleCount; i += 1) {
+      const radius = 3 + Math.random() * 6.7
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+      particles[i * 3] = radius * Math.sin(phi) * Math.cos(theta)
+      particles[i * 3 + 1] = radius * Math.cos(phi) * 0.6
+      particles[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta)
+    }
+
+    const particleGeo = new THREE.BufferGeometry()
+    particleGeo.setAttribute("position", new THREE.BufferAttribute(particles, 3))
+    const particleMat = new THREE.PointsMaterial({
+      color: 0x94ffd1,
+      size: 0.038,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
+    const pointCloud = new THREE.Points(particleGeo, particleMat)
+    scene.add(pointCloud)
+
+    const pointerTarget = new THREE.Vector2(0, 0)
+    const pointerCurrent = new THREE.Vector2(0, 0)
+
+    const onPointerMove = (event: PointerEvent) => {
+      const rect = container.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+      pointerTarget.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointerTarget.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1)
+    }
+
+    const onPointerLeave = () => pointerTarget.set(0, 0)
+
+    const resize = () => {
+      const { width, height } = container.getBoundingClientRect()
+      if (!width || !height) return
+      renderer.setSize(width, height, false)
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+    }
+
+    resize()
+    window.addEventListener("resize", resize)
+    container.addEventListener("pointermove", onPointerMove)
+    container.addEventListener("pointerleave", onPointerLeave)
+
+    const clock = new THREE.Clock()
+    let frame = 0
+
+    const tick = () => {
+      const elapsed = clock.getElapsedTime()
+      pointerCurrent.lerp(pointerTarget, 0.075)
+
+      field.rotation.y += 0.0015
+      field.rotation.x = Math.sin(elapsed * 0.3) * 0.08 + pointerCurrent.y * 0.18
+      field.rotation.z = Math.cos(elapsed * 0.2) * 0.03 + pointerCurrent.x * 0.12
+      field.position.x = pointerCurrent.x * 0.35
+      field.position.y = pointerCurrent.y * 0.22
+
+      coreMesh.rotation.x += 0.0019
+      coreMesh.rotation.y += 0.0023
+      shellMesh.rotation.z += 0.0018
+      pointCloud.rotation.y -= 0.00042
+      pointCloud.rotation.x = Math.sin(elapsed * 0.14) * 0.05
+
+      renderer.render(scene, camera)
+      frame = requestAnimationFrame(tick)
+    }
+
+    frame = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("resize", resize)
+      container.removeEventListener("pointermove", onPointerMove)
+      container.removeEventListener("pointerleave", onPointerLeave)
+      particleGeo.dispose()
+      particleMat.dispose()
+      coreGeo.dispose()
+      coreMat.dispose()
+      shellGeo.dispose()
+      shellMat.dispose()
+      renderer.dispose()
+    }
+  }, [disabled])
 
   return (
-    <div className="bg-black/20 px-5 py-6">
-      <p className="text-4xl font-medium tracking-[-0.04em] text-white md:text-5xl">
-        {count}
-        <span className="text-primary/90">{suffix}</span>
-      </p>
-      <p className="mt-2 text-xs uppercase tracking-[0.22em] text-white/42">
-        {label}
-      </p>
+    <div
+      ref={containerRef}
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+    >
+      <canvas
+        ref={canvasRef}
+        className={cn(
+          "h-full w-full transition-opacity duration-700 ease-out",
+          disabled ? "opacity-45" : "opacity-100",
+        )}
+      />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_24%,_rgba(147,255,210,0.12),_transparent_42%),radial-gradient(circle_at_68%_24%,_rgba(126,190,255,0.08),_transparent_36%)]" />
     </div>
   )
 }
 
-function Hero() {
-  const sectionRef = useRef<HTMLElement>(null)
-  const glowRef = useRef<HTMLDivElement>(null)
+function Hero({ introReady }: { introReady: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const prefersReducedMotion = usePrefersReducedMotion()
   const [mounted, setMounted] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
 
   useEffect(() => {
+    if (!introReady) return
     const timeout = window.setTimeout(() => setMounted(true), 120)
     return () => window.clearTimeout(timeout)
-  }, [])
-
-  const syncGlow = useEffectEvent((event: MouseEvent) => {
-    if (!sectionRef.current || !glowRef.current || prefersReducedMotion) return
-
-    const rect = sectionRef.current.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * 100
-    const y = ((event.clientY - rect.top) / rect.height) * 100
-
-    glowRef.current.style.background = `radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, oklch(0.73 0.11 164 / 0.18), transparent 45%), radial-gradient(circle at ${(x + 18).toFixed(1)}% ${(y + 10).toFixed(1)}%, oklch(0.71 0.1 72 / 0.12), transparent 50%)`
-  })
-
-  useEffect(() => {
-    const element = sectionRef.current
-    if (!element || prefersReducedMotion) return
-
-    element.addEventListener("mousemove", syncGlow)
-    return () => element.removeEventListener("mousemove", syncGlow)
-  }, [prefersReducedMotion])
+  }, [introReady])
 
   const syncVideo = useEffectEvent(() => {
     const video = videoRef.current
@@ -519,17 +845,14 @@ function Hero() {
   })
 
   const heroLines = [
-    <>Compare sourcing options</>,
+    <>Compare sourcing options before</>,
     <>
-      before you <span className="text-primary">place the order</span>.
+      you <span className="text-primary">place the order</span>.
     </>,
   ]
 
   return (
-    <section
-      ref={sectionRef}
-      className="relative min-h-[100svh] overflow-hidden border-b border-white/8"
-    >
+    <section className="relative min-h-[100svh] overflow-hidden border-b border-white/8">
       <div className="absolute inset-0 -z-20">
         <Image
           src={IMG.heroBg}
@@ -537,7 +860,10 @@ function Hero() {
           fill
           priority
           sizes="100vw"
-          className="object-cover scale-110"
+          className={cn(
+            "object-cover transition-transform duration-[2000ms] ease-[cubic-bezier(0.25,1,0.5,1)]",
+            introReady ? "scale-100" : "scale-[1.14]",
+          )}
         />
         <video
           ref={videoRef}
@@ -558,16 +884,8 @@ function Hero() {
         <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(2,7,10,0.12)_0%,_rgba(2,7,10,0.18)_28%,_rgba(2,7,10,0.72)_72%,_rgba(2,7,10,0.96)_100%)]" />
       </div>
 
+      <HeroThreeField disabled={prefersReducedMotion} />
       <div className="landing-grid absolute inset-0 -z-10 opacity-55" />
-      <div
-        ref={glowRef}
-        className="absolute inset-0 -z-10 pointer-events-none transition-opacity duration-500"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 28%, oklch(0.73 0.11 164 / 0.12), transparent 42%), radial-gradient(circle at 70% 20%, oklch(0.72 0.1 72 / 0.08), transparent 36%)",
-          opacity: prefersReducedMotion ? 0.75 : 1,
-        }}
-      />
 
       <div className="relative mx-auto flex min-h-[100svh] w-full max-w-screen-2xl flex-col px-6 pb-8 pt-6 md:px-10">
         <header className="flex items-center justify-between gap-4">
@@ -583,8 +901,7 @@ function Hero() {
 
           <nav className="hidden items-center gap-8 md:flex">
             {[
-              ["#platform", "Platform"],
-              ["#capabilities", "Capabilities"],
+              ["#features", "Features"],
               ["#about", "About"],
             ].map(([href, label]) => (
               <a
@@ -606,17 +923,13 @@ function Hero() {
           </nav>
         </header>
 
-        <div className="grid min-h-[calc(100svh-5rem)] flex-1 gap-12 py-12 lg:grid-cols-[minmax(0,1.05fr)_360px] lg:items-end">
-          <div className="max-w-4xl lg:self-center">
-            <div {...fadeUp(40)}>
-              <Eyebrow className="mb-6 text-primary/88">HackPrinceton Prototype</Eyebrow>
-            </div>
-
+        <div className="flex min-h-[calc(100svh-5rem)] flex-1 flex-col justify-center gap-12 py-12">
+          <div className="max-w-4xl">
             <LineReveal
               lines={heroLines}
               active={mounted}
               className="max-w-5xl"
-              lineClass="landing-display text-[clamp(3.35rem,8vw,7.85rem)] leading-[0.92] tracking-[-0.055em] text-white"
+              lineClass="landing-display text-[clamp(3.35rem,8vw,7.85rem)] leading-[0.96] tracking-[-0.055em] text-white"
               delay={120}
             />
 
@@ -638,62 +951,12 @@ function Hero() {
               </Link>
 
               <a
-                href="#platform"
+                href="#features"
                 className="inline-flex items-center gap-2 text-sm text-white/62 transition-colors hover:text-white"
               >
-                See the platform
+                See the features
                 <span aria-hidden>↓</span>
               </a>
-            </div>
-          </div>
-
-          <div {...fadeUp(480)} className="hidden flex-col gap-4 lg:flex">
-            <div className="landing-panel rounded-[2rem] p-5 landing-float">
-              <Eyebrow className="text-white/45">Global Coverage</Eyebrow>
-              <div className="relative mt-4 aspect-[4/4.9] overflow-hidden rounded-[1.5rem] border border-white/10 bg-black/24">
-                <Image
-                  src={IMG.globe}
-                  alt=""
-                  fill
-                  sizes="360px"
-                  className="object-cover scale-110 opacity-90 mix-blend-screen"
-                />
-                <div className="landing-grid absolute inset-0 opacity-30" />
-                <div className="absolute inset-x-4 bottom-4 rounded-[1.25rem] border border-white/10 bg-black/36 px-4 py-3 backdrop-blur-xl">
-                  <p className="text-[0.62rem] uppercase tracking-[0.28em] text-white/42">
-                    Coverage
-                  </p>
-                  <p className="mt-1 text-2xl font-medium tracking-[-0.04em] text-white">
-                    Graph + globe view
-                  </p>
-                  <p className="mt-1 text-sm leading-relaxed text-white/62">
-                    A live network view on the left and geographic context on
-                    the right.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="landing-panel rounded-[1.5rem] p-4 landing-float [animation-delay:120ms]">
-                <Eyebrow className="text-white/42">Score Inputs</Eyebrow>
-                <p className="mt-3 text-3xl font-medium tracking-[-0.05em] text-white">
-                  5
-                </p>
-                <p className="mt-1 text-sm text-white/58">
-                  Manufacturing, transport, grid, certifications, and climate
-                  risk.
-                </p>
-              </div>
-              <div className="landing-panel rounded-[1.5rem] p-4 landing-float [animation-delay:240ms]">
-                <Eyebrow className="text-white/42">Transport Modes</Eyebrow>
-                <p className="mt-3 text-3xl font-medium tracking-[-0.05em] text-white">
-                  4
-                </p>
-                <p className="mt-1 text-sm text-white/58">
-                  Sea, air, rail, and road are meant to rerank results fast.
-                </p>
-              </div>
             </div>
           </div>
         </div>
@@ -715,65 +978,6 @@ function Hero() {
           ))}
         </div>
       </div>
-    </section>
-  )
-}
-
-function Manifesto() {
-  const { ref, inView } = useInView(0.22)
-
-  return (
-    <section className="px-6 py-24 md:px-10 md:py-32">
-      <div className="mx-auto max-w-4xl text-center">
-        <Reveal>
-          <Eyebrow className="text-primary/82">Sourcing, Made Legible</Eyebrow>
-        </Reveal>
-
-        <WordReveal
-          text="Compare sourcing options with clearer environmental tradeoffs."
-          className="mt-6"
-          wordClass="landing-display text-[clamp(2.45rem,5.2vw,4.95rem)] leading-[0.98] tracking-[-0.045em] text-white"
-        />
-
-        <Reveal delay={180}>
-          <p className="mx-auto mt-8 max-w-2xl text-base leading-relaxed text-white/62 md:text-lg">
-            Give it a product, a destination, and a few sourcing assumptions.
-            GreenChain pulls scattered environmental signals into a comparison
-            you can actually use.
-          </p>
-        </Reveal>
-      </div>
-
-      <Reveal className="mx-auto mt-16 max-w-screen-xl landing-panel rounded-[2rem] p-6 md:p-8">
-          <Eyebrow className="text-primary/78">How It Scores</Eyebrow>
-          <p className="landing-display mt-4 max-w-3xl text-3xl leading-[1.02] tracking-[-0.05em] text-white md:text-4xl">
-            Every option is ranked on a few clear environmental drivers.
-          </p>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/62">
-            GreenChain is built for fast comparison. It helps answer which
-            sourcing option looks greener and what factors are driving the gap.
-          </p>
-
-          <div
-            ref={ref}
-            className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/5 lg:grid-cols-4"
-          >
-            {IMPACT_STATS.map((stat) => (
-              <StatTile key={stat.label} {...stat} active={inView} />
-            ))}
-          </div>
-
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {MANIFESTO_BULLETS.map((item) => (
-              <div
-                key={item}
-                className="rounded-[1.25rem] border border-white/10 bg-black/16 p-4 text-sm leading-relaxed text-white/62"
-              >
-                {item}
-              </div>
-            ))}
-          </div>
-      </Reveal>
     </section>
   )
 }
@@ -824,26 +1028,50 @@ function FeatureCard({
   )
 }
 
-function CapabilityGrid() {
+function FeaturesSection() {
   return (
-    <section id="capabilities" className="px-6 py-24 md:px-10 md:py-32">
+    <section id="features" className="px-6 py-24 md:px-10 md:py-32">
       <div className="mx-auto max-w-screen-xl">
         <Reveal className="max-w-3xl">
-          <Eyebrow className="text-primary/82">Explore the Platform</Eyebrow>
+          <Eyebrow className="text-primary/82">What you get</Eyebrow>
           <h2 className="landing-display mt-4 text-4xl leading-[0.95] tracking-[-0.05em] text-white md:text-6xl">
-            Graph, globe, and fast comparison context.
+            A fast way to compare sourcing options.
           </h2>
           <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/62 md:text-lg">
-            The graph and globe views make the supply chain easier to read,
-            giving each sourcing decision both network context and geographic
-            context.
+            Input a product and destination, compare a few countries and shipping assumptions,
+            then review a ranked recommendation.
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-5 lg:grid-cols-2">
-          <FeatureCard feature={FEATURES[0]} />
-          <FeatureCard feature={FEATURES[1]} delay={80} />
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {FEATURES.map((feature, index) => (
+            <FeatureCard
+              key={feature.label}
+              feature={feature}
+              delay={index * 80}
+            />
+          ))}
         </div>
+
+        <Reveal delay={220} className="mt-12">
+          <div className="landing-panel flex flex-col items-start justify-between gap-6 rounded-[2rem] border border-white/10 bg-black/16 p-8 md:flex-row md:items-center">
+            <div className="max-w-xl">
+              <p className="text-sm uppercase tracking-[0.3em] text-white/42">
+                Ready to try it?
+              </p>
+              <p className="mt-3 text-2xl font-medium tracking-[-0.04em] text-white md:text-3xl">
+                Open the dashboard and explore the graph + globe.
+              </p>
+            </div>
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] transition-transform duration-300 hover:-translate-y-0.5"
+            >
+              Open Dashboard
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
+        </Reveal>
       </div>
     </section>
   )
@@ -885,11 +1113,34 @@ function Footer() {
 }
 
 export default function LandingPage() {
+  const prefersReducedMotion = usePrefersReducedMotionSnapshot()
+  const hydrated = useHydrated()
+
+  const introMode: "full" | "instant" =
+    hydrated && prefersReducedMotion ? "instant" : "full"
+  const [introDone, setIntroDone] = useState(false)
+  const introActive = !introDone
+  const handleIntroDone = useCallback(() => setIntroDone(true), [])
+
+  useEffect(() => {
+    if (!introActive) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [introActive])
+
   return (
     <main className="landing-page min-h-svh overflow-x-hidden text-foreground">
-      <Hero />
-      <Manifesto />
-      <CapabilityGrid />
+      <LandingIntro
+        key={`${hydrated ? 1 : 0}-${introMode}`}
+        active={introActive}
+        mode={introMode}
+        onDone={handleIntroDone}
+      />
+      <Hero introReady={!introActive} />
+      <FeaturesSection />
       <Footer />
     </main>
   )
