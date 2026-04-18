@@ -927,9 +927,9 @@ function Hero({
   })
 
   const heroLines = [
-    <>Compare sourcing options before</>,
+    <>Compare sourcing options</>,
     <>
-      you <span className="text-primary">place the order</span>.
+      before you <span className="text-primary">place the order</span>.
     </>,
   ]
 
