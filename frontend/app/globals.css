@@ -304,12 +304,12 @@
     }
 
     50% {
-      transform: translate3d(0, -10px, 0);
+      transform: translate3d(0, -16px, 0);
     }
   }
 
   .animate-marquee {
-    animation: marquee 32s linear infinite;
+    animation: marquee 44s linear infinite;
   }
 
   .landing-page {
@@ -376,16 +376,20 @@
 
   @keyframes landing-launch-route {
     0% {
-      opacity: 0.34;
-      stroke-dashoffset: 240;
+      opacity: 0.18;
+      stroke-dashoffset: 360;
     }
 
-    50% {
-      opacity: 0.88;
+    38% {
+      opacity: 0.54;
+    }
+
+    68% {
+      opacity: 0.98;
     }
 
     100% {
-      opacity: 0.48;
+      opacity: 0.34;
       stroke-dashoffset: 0;
     }
   }
@@ -393,31 +397,119 @@
   @keyframes landing-launch-node {
     0%,
     100% {
-      opacity: 0.42;
-      transform: scale(0.92);
+      opacity: 0.34;
+      transform: scale(0.86);
     }
 
-    45% {
-      opacity: 0.96;
-      transform: scale(1.08);
+    34% {
+      opacity: 1;
+      transform: scale(1.18);
     }
 
-    70% {
-      opacity: 0.74;
+    62% {
+      opacity: 0.82;
       transform: scale(1);
+    }
+  }
+
+  @keyframes landing-launch-node-aura {
+    0%,
+    100% {
+      opacity: 0.18;
+      transform: scale(0.78);
+    }
+
+    50% {
+      opacity: 0.72;
+      transform: scale(1.24);
     }
   }
 
   @keyframes landing-launch-glow {
     0%,
     100% {
-      opacity: 0.68;
+      opacity: 0.52;
+      transform: scale(0.92);
+    }
+
+    50% {
+      opacity: 1;
+      transform: scale(1.16);
+    }
+  }
+
+  @keyframes landing-launch-halo {
+    0% {
+      opacity: 0;
+      transform: scale(0.82);
+    }
+
+    24% {
+      opacity: 0.32;
+    }
+
+    72% {
+      opacity: 0.12;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.18);
+    }
+  }
+
+  @keyframes landing-launch-ring-breathe {
+    0%,
+    100% {
+      opacity: 0.78;
+      filter: drop-shadow(0 0 18px rgb(126 255 212 / 0.14));
+    }
+
+    50% {
+      opacity: 1;
+      filter: drop-shadow(0 0 34px rgb(126 255 212 / 0.26));
+    }
+  }
+
+  @keyframes landing-launch-value {
+    0%,
+    100% {
+      opacity: 0.9;
       transform: scale(1);
     }
 
     50% {
-      opacity: 0.9;
-      transform: scale(1.04);
+      opacity: 1;
+      transform: scale(1.03);
+    }
+  }
+
+  @keyframes landing-soft-pulse {
+    0%,
+    100% {
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 0.06) inset,
+        0 24px 80px rgb(0 0 0 / 0.34);
+      border-color: rgb(255 255 255 / 0.1);
+    }
+
+    50% {
+      box-shadow:
+        0 1px 0 rgb(255 255 255 / 0.08) inset,
+        0 28px 96px rgb(0 0 0 / 0.42),
+        0 0 0 1px rgb(124 255 214 / 0.08);
+      border-color: rgb(255 255 255 / 0.14);
+    }
+  }
+
+  @keyframes landing-button-breathe {
+    0%,
+    100% {
+      box-shadow: var(--landing-button-shadow);
+    }
+
+    50% {
+      box-shadow: var(--landing-button-shadow-strong, var(--landing-button-shadow));
     }
   }
 
@@ -484,57 +576,101 @@
         rgb(124 216 255 / 0.09),
         transparent 26%
       );
-    animation: landing-launch-glow 5.4s ease-in-out infinite;
+    animation: landing-launch-glow 8.6s ease-in-out infinite;
     filter: blur(12px);
     opacity: 0.9;
   }
 
   .landing-launch__routes {
-    opacity: 0.72;
+    opacity: 0.84;
   }
 
   .landing-launch__route {
-    animation: landing-launch-route 2.5s cubic-bezier(0.22, 1, 0.36, 1) infinite
+    animation: landing-launch-route 4.8s cubic-bezier(0.22, 1, 0.36, 1) infinite
       alternate;
-    stroke-dasharray: 28 18 140 24;
+    stroke-dasharray: 34 22 176 32;
   }
 
   .landing-launch__route--2 {
-    animation-delay: 280ms;
+    animation-delay: 420ms;
   }
 
   .landing-launch__route--3 {
-    animation-delay: 520ms;
+    animation-delay: 860ms;
   }
 
   .landing-launch__node {
-    animation: landing-launch-node 2.8s ease-in-out infinite;
+    animation: landing-launch-node 5.8s cubic-bezier(0.22, 1, 0.36, 1)
+      infinite;
     transform-box: fill-box;
     transform-origin: center;
   }
 
+  .landing-launch__node-aura {
+    animation: landing-launch-node-aura 5.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .landing-launch__node-aura--inner {
+    animation-delay: 420ms;
+  }
+
   .landing-launch__content {
     transition:
-      opacity 220ms ease,
-      transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 320ms ease,
+      transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .landing-launch__badge {
+    animation: landing-soft-pulse 8.4s ease-in-out infinite;
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.08) inset,
       0 14px 40px rgb(0 0 0 / 0.24);
   }
 
+  .landing-launch__halo {
+    animation: landing-launch-halo 6.8s cubic-bezier(0.22, 1, 0.36, 1)
+      infinite;
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 9999px;
+    opacity: 0;
+  }
+
+  .landing-launch__halo--mid {
+    animation-delay: 1.2s;
+  }
+
+  .landing-launch__halo--inner {
+    animation-delay: 2.2s;
+    border-color: rgb(124 255 214 / 0.12);
+  }
+
+  .landing-launch__core {
+    animation: landing-launch-glow 7.2s ease-in-out infinite;
+  }
+
   .landing-launch__ring {
+    animation: landing-launch-ring-breathe 6.2s ease-in-out infinite;
     transform: rotate(-90deg);
     transform-origin: 50% 50%;
-    transition: stroke-dashoffset 90ms linear;
+    transition: stroke-dashoffset 180ms linear;
     will-change: stroke-dashoffset;
   }
 
+  .landing-launch__value {
+    animation: landing-launch-value 6.2s ease-in-out infinite;
+  }
+
   .landing-launch.is-reduced-motion .landing-launch__glow,
+  .landing-launch.is-reduced-motion .landing-launch__halo,
   .landing-launch.is-reduced-motion .landing-launch__node,
-  .landing-launch.is-reduced-motion .landing-launch__route {
+  .landing-launch.is-reduced-motion .landing-launch__node-aura,
+  .landing-launch.is-reduced-motion .landing-launch__route,
+  .landing-launch.is-reduced-motion .landing-launch__ring,
+  .landing-launch.is-reduced-motion .landing-launch__badge,
+  .landing-launch.is-reduced-motion .landing-launch__value,
+  .landing-launch.is-reduced-motion .landing-launch__core {
     animation: none;
   }
 
@@ -548,6 +684,7 @@
       rgb(255 255 255 / 0.08),
       rgb(255 255 255 / 0.03)
     );
+    animation: landing-soft-pulse 10.8s ease-in-out infinite;
     border: 1px solid rgb(255 255 255 / 0.1);
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.06) inset,
@@ -575,12 +712,48 @@
   }
 
   .landing-float {
-    animation: landing-float 8s ease-in-out infinite;
+    animation: landing-float 13.5s ease-in-out infinite;
+  }
+
+  .landing-button {
+    animation: landing-button-breathe 8.2s ease-in-out infinite;
+    transition:
+      transform 520ms cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 520ms ease,
+      background-color 420ms ease,
+      border-color 420ms ease,
+      color 420ms ease,
+      opacity 280ms ease;
+    will-change: transform, box-shadow;
+  }
+
+  .landing-button--ghost {
+    --landing-button-shadow:
+      0 12px 30px rgb(0 0 0 / 0.16),
+      0 0 0 1px rgb(255 255 255 / 0.02) inset;
+    --landing-button-shadow-strong:
+      0 18px 42px rgb(0 0 0 / 0.24),
+      0 0 0 1px rgb(255 255 255 / 0.08) inset,
+      0 0 24px rgb(124 255 214 / 0.08);
+    box-shadow: var(--landing-button-shadow);
+  }
+
+  .landing-button--solid {
+    --landing-button-shadow:
+      0 18px 38px rgb(3 17 10 / 0.28),
+      0 0 0 1px rgb(255 255 255 / 0.08) inset;
+    --landing-button-shadow-strong:
+      0 26px 58px rgb(3 17 10 / 0.36),
+      0 0 0 1px rgb(255 255 255 / 0.12) inset,
+      0 0 26px rgb(124 255 214 / 0.18);
+    box-shadow: var(--landing-button-shadow);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .animate-marquee,
-    .landing-float {
+    .landing-float,
+    .landing-panel,
+    .landing-button {
       animation: none !important;
     }
   }

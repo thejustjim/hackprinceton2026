@@ -24,6 +24,14 @@ import { cn } from "@/lib/utils"
 
 type GraphNodeState = SupplyScenarioGraphNode
 const NODE_SNAP_DURATION_MS = 1100
+const MOST_SUSTAINABLE_EDGE = {
+  core: "#6EE7B7",
+  coreStrong: "#ECFDF5",
+  glowSoft: "rgba(52,211,153,0.22)",
+  glowStrong: "rgba(52,211,153,0.42)",
+  pulseSoft: "rgba(167,243,208,0.34)",
+  pulseStrong: "rgba(209,250,229,0.92)",
+}
 
 interface GraphViewportSize {
   height: number
@@ -528,6 +536,7 @@ function EcoScoreRing({ score, size = 64 }: { score: number; size?: number }) {
 interface EdgeProps {
   drawDelay: number
   flowActive: boolean
+  mostSustainable: boolean
   sourceNode: GraphNodeState
   targetNode: GraphNodeState
   selected: boolean
@@ -537,6 +546,7 @@ interface EdgeProps {
 function ConnectionEdge({
   drawDelay,
   flowActive,
+  mostSustainable,
   sourceNode,
   targetNode,
   selected,
@@ -558,7 +568,38 @@ function ConnectionEdge({
   const start = getIntersection(sourceNode, dx, dy)
   const end = getIntersection(targetNode, -dx, -dy)
   const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`
-  const markerId = selected ? "arrow-sel" : hovered ? "arrow-hov" : "arrow-def"
+  const markerId = mostSustainable
+    ? selected
+      ? "arrow-eco-sel"
+      : hovered
+        ? "arrow-eco-hov"
+        : "arrow-eco-def"
+    : selected
+      ? "arrow-sel"
+      : hovered
+        ? "arrow-hov"
+        : "arrow-def"
+  const mainStroke = mostSustainable
+    ? selected
+      ? MOST_SUSTAINABLE_EDGE.coreStrong
+      : hovered
+        ? "rgba(167,243,208,0.98)"
+        : "rgba(110,231,183,0.88)"
+    : selected
+      ? "#F1E9FF"
+      : hovered
+        ? "rgba(228,219,250,0.88)"
+        : "rgba(214,207,224,0.68)"
+  const ambientStroke = mostSustainable
+    ? "rgba(167,243,208,0.18)"
+    : "rgba(226,220,235,0.14)"
+  const flowStroke = mostSustainable
+    ? selected
+      ? MOST_SUSTAINABLE_EDGE.pulseStrong
+      : "rgba(167,243,208,0.72)"
+    : selected
+      ? "rgba(255,250,255,0.94)"
+      : "rgba(233,224,255,0.48)"
 
   return (
     <g>
@@ -570,6 +611,19 @@ function ConnectionEdge({
         strokeWidth={20}
         className="cursor-pointer"
       />
+      {mostSustainable ? (
+        <path
+          d={path}
+          fill="none"
+          stroke={
+            selected || hovered
+              ? MOST_SUSTAINABLE_EDGE.glowStrong
+              : MOST_SUSTAINABLE_EDGE.glowSoft
+          }
+          strokeWidth={selected ? 11 : hovered ? 9.5 : 7.8}
+          style={{ filter: selected ? "blur(9px)" : "blur(7px)" }}
+        />
+      ) : null}
       {/* Glow layer when active */}
       {(selected || hovered) && (
         <path
@@ -586,16 +640,22 @@ function ConnectionEdge({
       <path
         d={path}
         fill="none"
-        stroke={
-          selected
-            ? "#F1E9FF"
-            : hovered
-              ? "rgba(228,219,250,0.88)"
-              : "rgba(214,207,224,0.68)"
-        }
+        stroke={mainStroke}
         pathLength={100}
         strokeDasharray="100"
-        strokeWidth={selected ? 2.6 : hovered ? 2.1 : 1.8}
+        strokeWidth={
+          mostSustainable
+            ? selected
+              ? 2.85
+              : hovered
+                ? 2.35
+                : 2.1
+            : selected
+              ? 2.6
+              : hovered
+                ? 2.1
+                : 1.8
+        }
         markerEnd={`url(#${markerId})`}
         className="edge-draw"
         style={{
@@ -607,21 +667,25 @@ function ConnectionEdge({
       <path
         d={path}
         fill="none"
-        stroke="rgba(226,220,235,0.14)"
+        stroke={ambientStroke}
         strokeWidth={0.9}
         strokeDasharray="7 30"
         className="edge-flow-ambient"
       />
-      {(selected || flowActive) && (
+      {(selected || flowActive || mostSustainable) && (
         <path
           d={path}
           fill="none"
-          stroke={
-            selected ? "rgba(255,250,255,0.94)" : "rgba(233,224,255,0.48)"
+          stroke={flowStroke}
+          strokeWidth={
+            mostSustainable ? (selected ? 1.9 : 1.35) : selected ? 1.8 : 1.2
           }
-          strokeWidth={selected ? 1.8 : 1.2}
-          strokeDasharray={selected ? "5 14" : "6 18"}
-          className={selected ? "edge-flow" : "edge-flow-subtle"}
+          strokeDasharray={
+            selected ? "5 14" : mostSustainable ? "6 16" : "6 18"
+          }
+          className={
+            selected || mostSustainable ? "edge-flow" : "edge-flow-subtle"
+          }
         />
       )}
     </g>
@@ -633,6 +697,7 @@ function ConnectionEdge({
 // ---------------------------------------------------------------------------
 
 interface SupplyChainGraphProps {
+  bestEcoManufacturerByComponent: Record<string, string>
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
@@ -641,6 +706,7 @@ interface SupplyChainGraphProps {
 }
 
 export function SupplyChainGraph({
+  bestEcoManufacturerByComponent,
   hoveredNodeId,
   onHoverNode,
   onSelectNode,
@@ -703,25 +769,34 @@ export function SupplyChainGraph({
     layoutAnchorsRef.current = new Map(
       layoutNodes.map((node) => [node.id, { ...node.position }])
     )
-    setNodes(layoutNodes)
+
+    const frameId = window.requestAnimationFrame(() => {
+      setNodes(layoutNodes)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
   }, [layoutNodes])
 
   useEffect(() => {
     const fittedTransform = getFitTransform(layoutNodes, viewportSize)
 
     if (fittedTransform) {
-      setTransform(fittedTransform)
+      const frameId = window.requestAnimationFrame(() => {
+        setTransform(fittedTransform)
+      })
+
+      return () => window.cancelAnimationFrame(frameId)
     }
   }, [layoutNodes, viewportSize])
 
   // Show panel with a tick of delay for animation
   useEffect(() => {
-    if (selectedNodeId) {
-      const t = setTimeout(() => setPanelVisible(true), 10)
-      return () => clearTimeout(t)
-    } else {
-      setPanelVisible(false)
-    }
+    const t = window.setTimeout(
+      () => setPanelVisible(Boolean(selectedNodeId)),
+      selectedNodeId ? 10 : 0
+    )
+
+    return () => window.clearTimeout(t)
   }, [selectedNodeId])
 
   // Prevent page scroll on canvas
@@ -1245,6 +1320,39 @@ export function SupplyChainGraph({
               >
                 <path d="M 0 2 L 10 5 L 0 8 z" fill="#F1E9FF" />
               </marker>
+              <marker
+                id="arrow-eco-def"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(110,231,183,0.54)" />
+              </marker>
+              <marker
+                id="arrow-eco-hov"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(167,243,208,0.82)" />
+              </marker>
+              <marker
+                id="arrow-eco-sel"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="#ECFDF5" />
+              </marker>
             </defs>
 
             {scenario.graph.edges.map((edge, edgeIndex) => {
@@ -1257,6 +1365,9 @@ export function SupplyChainGraph({
                 hoveredEdgeId === edge.id ||
                 hoveredNodeId === src.id ||
                 hoveredNodeId === tgt.id
+              const isMostSustainable =
+                tgt.data.kind === "manufacturer" &&
+                bestEcoManufacturerByComponent[tgt.data.componentId] === tgt.id
               const flowActive =
                 src.data.kind === "product" ||
                 (tgt.data.kind === "manufacturer" && tgt.data.isCurrent)
@@ -1270,6 +1381,7 @@ export function SupplyChainGraph({
                   <ConnectionEdge
                     drawDelay={edgeIndex * 0.08}
                     flowActive={flowActive}
+                    mostSustainable={isMostSustainable}
                     sourceNode={src}
                     targetNode={tgt}
                     selected={isSelected}

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { SupplyChainGraph } from "@/components/dashboard/supply-chain-graph"
 
 interface GraphViewProps {
+  bestEcoManufacturerByComponent: Record<string, string>
   className?: string
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
@@ -17,6 +18,7 @@ interface GraphViewProps {
 }
 
 export function GraphView({
+  bestEcoManufacturerByComponent,
   className,
   hoveredNodeId,
   onHoverNode,
@@ -56,6 +58,9 @@ export function GraphView({
           <span className="rounded-md border border-emerald-400/[0.15] bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-medium text-emerald-300/70">
             Live
           </span>
+          <span className="rounded-md border border-emerald-400/20 bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-medium text-emerald-200/80">
+            Green edges = most sustainable
+          </span>
           <span className="dashboard-chip-muted">
             {scenario.stats.graphNodeCount} nodes ·{" "}
             {scenario.stats.graphEdgeCount} edges
@@ -66,6 +71,7 @@ export function GraphView({
       {/* Graph canvas — fills all remaining height */}
       <div className="relative min-h-0 flex-1">
         <SupplyChainGraph
+          bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
           hoveredNodeId={hoveredNodeId}
           onHoverNode={onHoverNode}
           onSelectNode={onSelectNode}

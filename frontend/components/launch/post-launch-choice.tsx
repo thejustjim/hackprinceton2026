@@ -43,6 +43,7 @@ import {
   type ScenarioCsvPreview,
   validateScenarioCsvFile,
 } from "@/lib/scenario-csv"
+import { persistDemoDashboardEntry } from "@/lib/dashboard-entry"
 import { cn } from "@/lib/utils"
 
 const TEMPLATE_PATH = "/templates/scenario_csv_v2.csv"
@@ -193,7 +194,10 @@ export function PostLaunchChoice() {
               </a>
             </Button>
             <Button asChild>
-              <Link href="/dashboard">
+              <Link
+                href="/dashboard"
+                onClick={() => persistDemoDashboardEntry()}
+              >
                 <HugeiconsIcon
                   icon={MapsGlobal01Icon}
                   strokeWidth={2}
@@ -501,7 +505,10 @@ export function PostLaunchChoice() {
 
               <CardFooter className="border-t border-border/70 py-5">
                 <Button asChild className="w-full">
-                  <Link href="/dashboard">
+                  <Link
+                    href="/dashboard"
+                    onClick={() => persistDemoDashboardEntry()}
+                  >
                     <HugeiconsIcon
                       icon={ArrowRight01Icon}
                       strokeWidth={2}
