@@ -166,7 +166,7 @@
   }
 
   .dashboard-shell {
-    @apply relative min-h-svh overflow-hidden;
+    @apply relative h-svh overflow-hidden;
   }
 
   .dashboard-shell::before {

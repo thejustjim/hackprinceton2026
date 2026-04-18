@@ -1,6 +1,6 @@
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { supplyChainSnapshot } from "@/lib/mock-supply-chain"
+import { sampleSupplyScenario } from "@/lib/supply-chain-scenario"
 
 export default function Page() {
-  return <DashboardShell data={supplyChainSnapshot} />
+  return <DashboardShell scenario={sampleSupplyScenario} />
 }

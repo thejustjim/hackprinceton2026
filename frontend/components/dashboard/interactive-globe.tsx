@@ -78,12 +78,6 @@ interface RouteLabelModel {
   y: number
 }
 
-interface RouteLabelPlacementState {
-  candidateKey: string
-  x: number
-  y: number
-}
-
 interface FocusState {
   componentId?: string
   manufacturerId?: string
@@ -129,6 +123,11 @@ function degreesToRadians(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
+}
+
+function roundForSvg(value: number, digits = 6) {
+  const factor = 10 ** digits
+  return Math.round(value * factor) / factor
 }
 
 function toGeoPoint(location: SupplyScenarioLocation): GlobeGeoPoint {
@@ -568,32 +567,21 @@ function getRouteLabelAnchor(
   }
 
   return {
-    normalX: offset.x / offsetMagnitude,
-    normalY: offset.y / offsetMagnitude,
-    routeX: anchor.x,
-    routeY: anchor.y,
-    x: positionedAnchor.x,
-    y: positionedAnchor.y,
+    normalX: roundForSvg(offset.x / offsetMagnitude),
+    normalY: roundForSvg(offset.y / offsetMagnitude),
+    routeX: roundForSvg(anchor.x),
+    routeY: roundForSvg(anchor.y),
+    x: roundForSvg(positionedAnchor.x),
+    y: roundForSvg(positionedAnchor.y),
   }
 }
 
 function getRouteLabelPlacementPenalty(
   candidate: RouteLabelModel,
   placedLabels: RouteLabelModel[],
-  anchorOffset: number,
-  previousPlacement?: RouteLabelPlacementState
+  anchorOffset: number
 ) {
   let penalty = Math.abs(anchorOffset) * 20
-
-  if (previousPlacement) {
-    penalty +=
-      Math.hypot(
-        candidate.x - previousPlacement.x,
-        candidate.y - previousPlacement.y
-      ) * 1.3
-    penalty +=
-      previousPlacement.candidateKey === candidate.candidateKey ? -16 : 22
-  }
 
   for (const placedLabel of placedLabels) {
     const deltaX = Math.abs(candidate.x - placedLabel.x)
@@ -701,50 +689,6 @@ function resolveRouteLabelCollisions(labels: RouteLabelModel[]) {
   return resolved.map((label) => ({
     ...label,
   }))
-}
-
-function stabilizeRouteLabels(
-  labels: RouteLabelModel[],
-  previousPlacements: Map<string, RouteLabelPlacementState>
-) {
-  const nextPlacements = new Map<string, RouteLabelPlacementState>()
-  const smoothedLabels = labels.map((label) => {
-    const previousPlacement = previousPlacements.get(label.componentId)
-
-    if (!previousPlacement) {
-      nextPlacements.set(label.componentId, {
-        candidateKey: label.candidateKey,
-        x: label.x,
-        y: label.y,
-      })
-
-      return label
-    }
-
-    const followFactor =
-      previousPlacement.candidateKey === label.candidateKey ? 0.22 : 0.13
-    const smoothedLabel = {
-      ...label,
-      x: previousPlacement.x + (label.x - previousPlacement.x) * followFactor,
-      y: previousPlacement.y + (label.y - previousPlacement.y) * followFactor,
-    }
-
-    nextPlacements.set(label.componentId, {
-      candidateKey: label.candidateKey,
-      x: smoothedLabel.x,
-      y: smoothedLabel.y,
-    })
-
-    return smoothedLabel
-  })
-
-  previousPlacements.clear()
-
-  nextPlacements.forEach((placement, componentId) => {
-    previousPlacements.set(componentId, placement)
-  })
-
-  return smoothedLabels
 }
 
 function getRouteLabelLeaderPath(label: RouteLabelModel) {
@@ -1113,9 +1057,6 @@ export function InteractiveGlobe({
   const clipPathId = `globe-clip-${useId().replaceAll(":", "")}`
   const dragStateRef = useRef<DragState | null>(null)
   const lastCommitRef = useRef(0)
-  const routeLabelPlacementsRef = useRef(
-    new Map<string, RouteLabelPlacementState>()
-  )
   const rotationRef = useRef(DEFAULT_ROTATION)
   const velocityRef = useRef({ pitch: 0, yaw: 0 })
 
@@ -1132,10 +1073,6 @@ export function InteractiveGlobe({
       active = false
     }
   }, [])
-
-  useEffect(() => {
-    routeLabelPlacementsRef.current.clear()
-  }, [scenario.id])
 
   useEffect(() => {
     let frameId = 0
@@ -1431,9 +1368,6 @@ export function InteractiveGlobe({
         descriptor
       const width = Math.max(18, component.label.length * 1.8 + 9)
       const height = 5.9
-      const previousPlacement = routeLabelPlacementsRef.current.get(
-        component.id
-      )
       const laneOffset =
         componentCount <= 1
           ? 0
@@ -1481,30 +1415,29 @@ export function InteractiveGlobe({
 
             const candidateKey = `${route.id}:${progress.toFixed(3)}:${offsetScale.toFixed(2)}`
             const candidateLabel = {
-              anchorX: anchor.x,
-              anchorY: anchor.y,
+              anchorX: roundForSvg(anchor.x),
+              anchorY: roundForSvg(anchor.y),
               candidateKey,
               componentId: component.id,
               height,
               isCurrent: route.isCurrent,
               label: component.label,
               manufacturerId: route.manufacturerId,
-              normalX: anchor.normalX,
-              normalY: anchor.normalY,
+              normalX: roundForSvg(anchor.normalX),
+              normalY: roundForSvg(anchor.normalY),
               priority: priority + (route.isCurrent ? 1 : 0),
-              routeX: anchor.routeX,
-              routeY: anchor.routeY,
+              routeX: roundForSvg(anchor.routeX),
+              routeY: roundForSvg(anchor.routeY),
               score: 0,
               width,
-              x: anchor.x,
-              y: anchor.y,
+              x: roundForSvg(anchor.x),
+              y: roundForSvg(anchor.y),
             } satisfies RouteLabelModel
             const penalty =
               getRouteLabelPlacementPenalty(
                 candidateLabel,
                 placedLabels,
-                progressOffset,
-                previousPlacement
+                progressOffset
               ) +
               routeIndex * 44 +
               (offsetScale - 1) * 14
@@ -1525,10 +1458,7 @@ export function InteractiveGlobe({
       }
     }
 
-    return stabilizeRouteLabels(
-      resolveRouteLabelCollisions(placedLabels),
-      routeLabelPlacementsRef.current
-    )
+    return resolveRouteLabelCollisions(placedLabels)
   }, [
     hoveredFocus,
     pinnedManufacturerByComponent,
@@ -1554,8 +1484,8 @@ export function InteractiveGlobe({
       id: scenario.product.id,
       label: scenario.product.label,
       width: Math.max(24, scenario.product.label.length * 1.8 + 10),
-      x: point.x,
-      y: point.y,
+      x: roundForSvg(point.x),
+      y: roundForSvg(point.y),
     }
   }, [hoveredNodeId, scenario.product, selectedNodeId])
 

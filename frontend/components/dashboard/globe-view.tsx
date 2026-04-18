@@ -2,7 +2,6 @@
 
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  MapPinpoint02Icon,
   MapsGlobal01Icon,
   Route03Icon,
 } from "@hugeicons/core-free-icons"
@@ -229,7 +228,7 @@ export function GlobeView({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         <div
           className="relative flex min-h-[27rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] md:min-h-[31rem]"
           style={{
