@@ -292,9 +292,9 @@ export function GlobeView({
             <div>
               <p className="dashboard-section-label">Route Selector</p>
               <p className="mt-1 text-[11px] text-white/34">
-                Current = used in this sample scenario. Alternate = modeled
-                fallback, not another active choice. Click a manufacturer to
-                keep that route active for its component.
+                Current = active route. Alternate = modeled fallback, not
+                another active choice. Click a manufacturer to keep that route
+                active for its component.
               </p>
             </div>
             <span className="dashboard-chip-muted">Details in graph</span>

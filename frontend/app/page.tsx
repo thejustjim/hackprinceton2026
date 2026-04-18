@@ -468,7 +468,7 @@ function LineReveal({
   return (
     <div className={cn("space-y-1.5", className)}>
       {lines.map((line, index) => (
-        <div key={index} className="overflow-hidden pb-[0.22em] pr-[0.04em]">
+        <div key={index} className="overflow-hidden pb-[0.34em] pr-[0.04em]">
           <div
             className={cn(lineClass)}
             style={{
