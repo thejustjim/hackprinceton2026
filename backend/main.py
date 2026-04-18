@@ -112,6 +112,15 @@ def _warn_if_search_tools_misconfigured() -> None:
 from .agents import run_supply_chain_research
 from .db import audit_search, init_db
 from .ml_scorer import compute_composite_scores, parse_agent_output
+from .scenario_editing import (
+    ScenarioEditConfigError,
+    ScenarioEditProviderError,
+    ScenarioEditRequestPayload,
+    ScenarioEditResponsePayload,
+    ScenarioEditValidationError,
+    edit_scenario_with_k2,
+    normalize_edited_scenario,
+)
 from .transport import rescore_transport
 from .tools import (
     calculate_transport_emissions,
@@ -720,3 +729,42 @@ async def rescore_transport_endpoint(req: RescoreRequest) -> dict[str, Any]:
     for i, m in enumerate(rescored, 1):
         m["rank"] = i
     return {"count": len(rescored), "mode": req.mode, "results": rescored}
+
+
+@app.post("/scenario/edit", response_model=ScenarioEditResponsePayload)
+async def edit_scenario_endpoint(
+    req: ScenarioEditRequestPayload,
+) -> ScenarioEditResponsePayload:
+    """Apply a safe, non-structural prompt edit to the current scenario JSON."""
+    prompt = req.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
+
+    try:
+        model_response = await edit_scenario_with_k2(prompt, req.scenario)
+    except ScenarioEditConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ScenarioEditProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if model_response.status == "rejected":
+        return model_response
+
+    if model_response.scenario is None:
+        return ScenarioEditResponsePayload(
+            status="rejected",
+            message=(
+                "The edit model returned an applied response without a scenario payload."
+            ),
+        )
+
+    try:
+        normalized = normalize_edited_scenario(req.scenario, model_response.scenario)
+    except ScenarioEditValidationError as exc:
+        return ScenarioEditResponsePayload(status="rejected", message=str(exc))
+
+    return ScenarioEditResponsePayload(
+        status="applied",
+        message=model_response.message,
+        scenario=normalized,
+    )

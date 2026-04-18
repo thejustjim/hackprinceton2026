@@ -20,9 +20,14 @@ import {
 interface DashboardShellProps {
   error: string | null
   onFile: (file: File) => void
+  onPromptChange: (value: string) => void
+  onPromptSubmit: () => void
   onRestartOnboarding?: () => void
   onReset: () => void
   onUseDemo: () => void
+  promptError?: string | null
+  promptPending?: boolean
+  promptValue: string
   scenario: SupplyScenario | null
   scenarioSource: "demo" | "search" | null
   showUploadPanel?: boolean
@@ -88,9 +93,14 @@ function createBestEcoManufacturerByComponent(scenario: SupplyScenario) {
 export function DashboardShell({
   error,
   onFile,
+  onPromptChange,
+  onPromptSubmit,
   onRestartOnboarding,
   onReset,
   onUseDemo,
+  promptError,
+  promptPending,
+  promptValue,
   scenario,
   scenarioSource,
   showUploadPanel = true,
@@ -225,7 +235,12 @@ export function DashboardShell({
               className="h-full min-h-0"
               hoveredNodeId={hoveredNodeId}
               onHoverNode={handleHoverNode}
+              onPromptChange={onPromptChange}
+              onPromptSubmit={onPromptSubmit}
               onSelectNode={handleSelectNode}
+              promptError={promptError}
+              promptPending={promptPending}
+              promptValue={promptValue}
               scenario={scenario}
               selectedNodeId={selectedNodeId}
             />

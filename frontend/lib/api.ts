@@ -1,3 +1,5 @@
+import type { SupplyScenario } from "@/lib/supply-chain-scenario"
+
 export type TransportMode = "sea" | "air" | "rail" | "road"
 export type EnvRating = "green" | "amber" | "red"
 export type DisclosureStatus = "verified" | "partial" | "none"
@@ -98,7 +100,32 @@ export interface SearchResponse {
   results: ManufacturerResult[]
 }
 
+export interface ScenarioEditRequest {
+  prompt: string
+  scenario: SupplyScenario
+}
+
+export interface ScenarioEditResponse {
+  message: string
+  scenario: SupplyScenario | null
+  status: "applied" | "rejected"
+}
+
 export const API_BASE_URL = "/api"
+
+async function readErrorDetail(response: Response) {
+  const text = await response.text().catch(() => response.statusText)
+  let detail = text || response.statusText
+  try {
+    const parsed = JSON.parse(text) as { detail?: string | { msg: string }[] }
+    if (typeof parsed.detail === "string") {
+      detail = parsed.detail
+    }
+  } catch {
+    /* keep raw body */
+  }
+  return detail
+}
 
 export async function getHealth(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE_URL}/health`)
@@ -116,17 +143,25 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
   })
 
   if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText)
-    let detail = text || response.statusText
-    try {
-      const parsed = JSON.parse(text) as { detail?: string | { msg: string }[] }
-      if (typeof parsed.detail === "string") {
-        detail = parsed.detail
-      }
-    } catch {
-      /* keep raw body */
-    }
+    const detail = await readErrorDetail(response)
     throw new Error(`Search failed (${response.status}): ${detail}`)
+  }
+
+  return response.json()
+}
+
+export async function editScenario(
+  request: ScenarioEditRequest
+): Promise<ScenarioEditResponse> {
+  const response = await fetch(`${API_BASE_URL}/scenario/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    const detail = await readErrorDetail(response)
+    throw new Error(`Scenario edit failed (${response.status}): ${detail}`)
   }
 
   return response.json()

@@ -29,9 +29,12 @@ export function OnboardingFlow() {
       <DashboardShell
         error={null}
         onFile={noop}
+        onPromptChange={noop}
+        onPromptSubmit={noop}
         onReset={noop}
         onRestartOnboarding={restartOnboarding}
         onUseDemo={noop}
+        promptValue=""
         scenario={sampleSupplyScenario}
         scenarioSource="demo"
         status="idle"

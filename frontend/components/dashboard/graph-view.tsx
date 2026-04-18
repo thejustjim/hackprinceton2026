@@ -13,7 +13,12 @@ interface GraphViewProps {
   className?: string
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onPromptChange: (value: string) => void
+  onPromptSubmit: () => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  promptError?: string | null
+  promptPending?: boolean
+  promptValue: string
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
@@ -23,7 +28,12 @@ export function GraphView({
   className,
   hoveredNodeId,
   onHoverNode,
+  onPromptChange,
+  onPromptSubmit,
   onSelectNode,
+  promptError,
+  promptPending,
+  promptValue,
   scenario,
   selectedNodeId,
 }: GraphViewProps) {
@@ -82,7 +92,11 @@ export function GraphView({
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3 sm:p-4">
           <PromptBar
             className="pointer-events-auto mx-auto w-full max-w-4xl"
-            prompt={`Trace the cleanest fallback path through ${scenario.title} and explain which manufacturer swap cuts the most emissions without creating a new bottleneck.`}
+            error={promptError}
+            onSubmit={onPromptSubmit}
+            onValueChange={onPromptChange}
+            pending={promptPending}
+            value={promptValue}
           />
         </div>
       </div>

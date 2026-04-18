@@ -1,6 +1,6 @@
 "use client"
 
-import { type ComponentProps, useState } from "react"
+import { type ComponentProps, type FormEvent } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Message02Icon } from "@hugeicons/core-free-icons"
 
@@ -9,15 +9,28 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 interface PromptBarProps extends ComponentProps<"div"> {
-  prompt?: string
+  error?: string | null
+  onSubmit: () => void
+  onValueChange: (value: string) => void
+  pending?: boolean
+  value: string
 }
 
 export function PromptBar({
   className,
-  prompt = "Ask the graph what breaks first if a node drops, which route carries the highest carbon risk, or where to reroute for the cleanest recovery.",
+  error,
+  onSubmit,
+  onValueChange,
+  pending = false,
+  value,
   ...props
 }: PromptBarProps) {
-  const [value, setValue] = useState(prompt)
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!pending && value.trim()) {
+      onSubmit()
+    }
+  }
 
   return (
     <div
@@ -27,21 +40,31 @@ export function PromptBar({
       )}
       {...props}
     >
-      <div className="flex items-center gap-2">
-        <Input
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          className="h-11 flex-1 rounded-xl border-white/8 bg-black/22 shadow-none"
-        />
-        <Button size="default" className="shrink-0 rounded-xl shadow-none">
-          <HugeiconsIcon
-            icon={Message02Icon}
-            strokeWidth={2}
-            data-icon="inline-start"
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <Input
+            value={value}
+            onChange={(event) => onValueChange(event.target.value)}
+            placeholder="Describe the scenario edit you want to apply"
+            className="h-11 flex-1 rounded-xl border-white/8 bg-black/22 shadow-none"
+            disabled={pending}
           />
-          Submit
-        </Button>
-      </div>
+          <Button
+            type="submit"
+            size="default"
+            className="shrink-0 rounded-xl shadow-none"
+            disabled={pending || !value.trim()}
+          >
+            <HugeiconsIcon
+              icon={Message02Icon}
+              strokeWidth={2}
+              data-icon="inline-start"
+            />
+            {pending ? "Applying..." : "Submit"}
+          </Button>
+        </div>
+        {error ? <p className="px-1 text-xs text-red-300/80">{error}</p> : null}
+      </form>
     </div>
   )
 }
