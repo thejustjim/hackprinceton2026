@@ -451,9 +451,9 @@ function LineReveal({
   return (
     <div className={cn("space-y-1.5", className)}>
       {lines.map((line, index) => (
-        <div key={index} className="overflow-hidden pr-[0.04em] pb-[0.34em]">
+        <div key={index} className="overflow-hidden pr-[0.04em]">
           <div
-            className={cn(lineClass)}
+            className={cn(lineClass, "pb-[0.42em]")}
             style={{
               opacity: active ? 1 : 0,
               transform: active ? "translateY(0%)" : "translateY(118%)",
@@ -1012,7 +1012,7 @@ function Hero({
               lines={heroLines}
               active={mounted}
               className="max-w-[80rem]"
-              lineClass="landing-display text-[clamp(3.35rem,8vw,7.85rem)] leading-[0.96] tracking-[-0.055em] text-white"
+              lineClass="landing-display text-[clamp(3.35rem,8vw,7.85rem)] leading-[1] tracking-[-0.055em] text-white"
               delay={120}
             />
 
