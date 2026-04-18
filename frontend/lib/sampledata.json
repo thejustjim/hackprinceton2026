@@ -1,14 +1,14 @@
 {
   "scenario": {
-    "id": "scenario_lint_roller_001",
+    "id": "scenario_lint_roller_live_001",
     "productName": "Lint Roller",
     "quantity": 10000,
     "unit": "units",
     "destination": {
       "country": "US",
-      "city": "Chicago",
-      "lat": 41.8781,
-      "lng": -87.6298
+      "city": "New York",
+      "lat": 40.7128,
+      "lng": -74.006
     }
   },
   "nodes": [
@@ -18,180 +18,89 @@
       "baseType": "product",
       "label": "Lint Roller",
       "subtitle": "10,000 units",
-      "children": ["component_adhesive", "component_plastic", "component_cardboard"]
+      "children": ["component_adhesive"]
     },
     {
       "id": "component_adhesive",
       "nodeKind": "base",
       "baseType": "component",
       "label": "Adhesive",
-      "children": ["mfr_adh_1", "mfr_adh_2"]
+      "children": ["mfr_adh_current", "mfr_adh_delo", "mfr_adh_nanpao"]
     },
     {
-      "id": "component_plastic",
-      "nodeKind": "base",
-      "baseType": "component",
-      "label": "Plastic",
-      "children": ["mfr_pla_1", "mfr_pla_2"]
-    },
-    {
-      "id": "component_cardboard",
-      "nodeKind": "base",
-      "baseType": "component",
-      "label": "Cardboard",
-      "children": ["mfr_car_1", "mfr_car_2"]
-    },
-
-    {
-      "id": "mfr_adh_1",
+      "id": "mfr_adh_current",
       "nodeKind": "manufacturer",
-      "name": "EcoBond Materials Co.",
+      "name": "AdhesiveCo",
       "component": "Adhesive",
       "isCurrent": true,
-      "location": {
-        "country": "US",
-        "city": "Cleveland",
-        "lat": 41.4993,
-        "lng": -81.6944
-      },
-      "ecoScore": 58,
-      "gridCarbonScore": 42,
-      "climateRiskScore": 31,
-      "transportEmissionsTco2e": 2.8,
-      "manufacturingEmissionsTco2e": {
-        "q10": 8.4,
-        "q50": 11.6,
-        "q90": 14.9
-      },
-      "certifications": ["iso14001"]
-    },
-    {
-      "id": "mfr_adh_2",
-      "nodeKind": "manufacturer",
-      "name": "GreenStick Industrial",
-      "component": "Adhesive",
-      "isCurrent": false,
       "location": {
         "country": "DE",
         "city": "Hamburg",
         "lat": 53.5511,
         "lng": 9.9937
       },
-      "ecoScore": 34,
-      "gridCarbonScore": 20,
-      "climateRiskScore": 18,
-      "transportEmissionsTco2e": 4.1,
+      "ecoScore": 50,
+      "gridCarbonScore": 50,
+      "climateRiskScore": 28,
+      "transportEmissionsTco2e": 0.42,
       "manufacturingEmissionsTco2e": {
-        "q10": 5.9,
-        "q50": 7.8,
-        "q90": 10.2
+        "q10": 326.5,
+        "q50": 61.4,
+        "q90": 25.8
       },
-      "certifications": ["iso14001", "sbt"]
+      "certifications": ["iso14001", "sbt_committed"]
     },
-
     {
-      "id": "mfr_pla_1",
+      "id": "mfr_adh_delo",
       "nodeKind": "manufacturer",
-      "name": "PolyCore Manufacturing",
-      "component": "Plastic",
+      "name": "DELO Industrial Adhesives",
+      "component": "Adhesive",
       "isCurrent": false,
       "location": {
-        "country": "MX",
-        "city": "Monterrey",
-        "lat": 25.6866,
-        "lng": -100.3161
-      },
-      "ecoScore": 49,
-      "gridCarbonScore": 44,
-      "climateRiskScore": 35,
-      "transportEmissionsTco2e": 3.6,
-      "manufacturingEmissionsTco2e": {
-        "q10": 10.2,
-        "q50": 13.1,
-        "q90": 17.4
-      },
-      "certifications": ["sbt"]
-    },
-    {
-      "id": "mfr_pla_2",
-      "nodeKind": "manufacturer",
-      "name": "ClearForm Plastics",
-      "component": "Plastic",
-      "isCurrent": true,
-      "location": {
-        "country": "CN",
-        "city": "Shenzhen",
-        "lat": 22.5431,
-        "lng": 114.0579
-      },
-      "ecoScore": 72,
-      "gridCarbonScore": 81,
-      "climateRiskScore": 56,
-      "transportEmissionsTco2e": 7.9,
-      "manufacturingEmissionsTco2e": {
-        "q10": 14.8,
-        "q50": 18.7,
-        "q90": 24.5
-      },
-      "certifications": []
-    },
-
-    {
-      "id": "mfr_car_1",
-      "nodeKind": "manufacturer",
-      "name": "NorthPack Fiberboard",
-      "component": "Cardboard",
-      "isCurrent": false,
-      "location": {
-        "country": "CA",
-        "city": "Toronto",
-        "lat": 43.6532,
-        "lng": -79.3832
+        "country": "DE",
+        "city": "Windach",
+        "lat": 48.0667,
+        "lng": 11.0333
       },
       "ecoScore": 29,
-      "gridCarbonScore": 16,
-      "climateRiskScore": 22,
-      "transportEmissionsTco2e": 2.1,
+      "gridCarbonScore": 43,
+      "climateRiskScore": 24,
+      "transportEmissionsTco2e": 0.42,
       "manufacturingEmissionsTco2e": {
-        "q10": 4.2,
-        "q50": 5.8,
-        "q90": 7.6
+        "q10": 326.5,
+        "q50": 61.4,
+        "q90": 25.8
       },
-      "certifications": ["iso14001", "cdp_a"]
+      "certifications": ["iso14001", "emas"]
     },
     {
-      "id": "mfr_car_2",
+      "id": "mfr_adh_nanpao",
       "nodeKind": "manufacturer",
-      "name": "PackLite Board Mills",
-      "component": "Cardboard",
-      "isCurrent": true,
+      "name": "Nanpao Resins Chemical Co.",
+      "component": "Adhesive",
+      "isCurrent": false,
       "location": {
-        "country": "US",
-        "city": "Indianapolis",
-        "lat": 39.7684,
-        "lng": -86.1581
+        "country": "TW",
+        "city": "Tainan",
+        "lat": 22.9999,
+        "lng": 120.227
       },
-      "ecoScore": 41,
-      "gridCarbonScore": 33,
-      "climateRiskScore": 25,
-      "transportEmissionsTco2e": 1.8,
+      "ecoScore": 46,
+      "gridCarbonScore": 57,
+      "climateRiskScore": 34,
+      "transportEmissionsTco2e": 0.88,
       "manufacturingEmissionsTco2e": {
-        "q10": 5.3,
-        "q50": 7.1,
-        "q90": 9.4
+        "q10": 673.9,
+        "q50": 121.2,
+        "q90": 42.3
       },
       "certifications": ["iso14001"]
     }
   ],
   "edges": [
     { "id": "e1", "source": "product_lint_roller", "target": "component_adhesive" },
-    { "id": "e2", "source": "product_lint_roller", "target": "component_plastic" },
-    { "id": "e3", "source": "product_lint_roller", "target": "component_cardboard" },
-    { "id": "e4", "source": "component_adhesive", "target": "mfr_adh_1" },
-    { "id": "e5", "source": "component_adhesive", "target": "mfr_adh_2" },
-    { "id": "e6", "source": "component_plastic", "target": "mfr_pla_1" },
-    { "id": "e7", "source": "component_plastic", "target": "mfr_pla_2" },
-    { "id": "e8", "source": "component_cardboard", "target": "mfr_car_1" },
-    { "id": "e9", "source": "component_cardboard", "target": "mfr_car_2" }
+    { "id": "e2", "source": "component_adhesive", "target": "mfr_adh_current" },
+    { "id": "e3", "source": "component_adhesive", "target": "mfr_adh_delo" },
+    { "id": "e4", "source": "component_adhesive", "target": "mfr_adh_nanpao" }
   ]
 }

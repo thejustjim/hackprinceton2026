@@ -182,15 +182,10 @@ const COUNTRY_NAMES: Record<string, string> = {
 
 const DEFAULT_GRAPH_NODE_POSITIONS: Record<string, { x: number; y: number }> = {
   product_lint_roller: { x: -55, y: -55 },
-  component_plastic: { x: 220, y: -35 },
-  component_cardboard: { x: -230, y: 225 },
-  component_adhesive: { x: -230, y: -295 },
-  mfr_pla_1: { x: 442, y: -380 },
-  mfr_pla_2: { x: 442, y: 270 },
-  mfr_car_1: { x: -120, y: 595 },
-  mfr_car_2: { x: -682, y: 270 },
-  mfr_adh_1: { x: -682, y: -380 },
-  mfr_adh_2: { x: -120, y: -705 },
+  component_adhesive: { x: 260, y: -40 },
+  mfr_adh_current: { x: 560, y: -360 },
+  mfr_adh_delo: { x: 700, y: -20 },
+  mfr_adh_nanpao: { x: 560, y: 320 },
 }
 
 function normalizeLocation(location: RawLocation): SupplyScenarioLocation {
