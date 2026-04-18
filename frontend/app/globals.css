@@ -209,4 +209,24 @@
     animation-iteration-count: infinite;
     animation-timing-function: linear;
   }
+
+  /* Landing page utilities */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  @keyframes landing-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(2rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
