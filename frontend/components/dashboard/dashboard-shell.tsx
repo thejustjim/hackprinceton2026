@@ -5,6 +5,10 @@ import Link from "next/link"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
+import {
+  UploadPanel,
+  type UploadPanelStatus,
+} from "@/components/dashboard/upload-panel"
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,8 +17,13 @@ import {
 } from "@/lib/supply-chain-scenario"
 
 interface DashboardShellProps {
+  error: string | null
+  onFile: (file: File) => void
   onRestartOnboarding?: () => void
-  scenario: SupplyScenario
+  onReset: () => void
+  onUseDemo: () => void
+  scenario: SupplyScenario | null
+  status: UploadPanelStatus
 }
 
 function createPinnedManufacturerByComponent(scenario: SupplyScenario) {
@@ -37,15 +46,21 @@ function createPinnedManufacturerByComponent(scenario: SupplyScenario) {
 }
 
 export function DashboardShell({
+  error,
+  onFile,
   onRestartOnboarding,
+  onReset,
+  onUseDemo,
   scenario,
+  status,
 }: DashboardShellProps) {
   const [selectedNodeId, setSelectedNodeId] =
     useState<SupplyScenarioSelectableNodeId | null>(null)
   const [hoveredNodeId, setHoveredNodeId] =
     useState<SupplyScenarioSelectableNodeId | null>(null)
   const basePinnedManufacturerByComponent = useMemo(
-    () => createPinnedManufacturerByComponent(scenario),
+    () =>
+      scenario ? createPinnedManufacturerByComponent(scenario) : {},
     [scenario]
   )
   const [pinnedManufacturerOverrides, setPinnedManufacturerOverrides] = useState<
@@ -60,12 +75,15 @@ export function DashboardShell({
   )
   const manufacturerComponentById = useMemo(
     () =>
-      new Map(
-        scenario.manufacturers.map(
-          (manufacturer) => [manufacturer.id, manufacturer.componentId] as const
-        )
-      ),
-    [scenario.manufacturers]
+      scenario
+        ? new Map(
+            scenario.manufacturers.map(
+              (manufacturer) =>
+                [manufacturer.id, manufacturer.componentId] as const
+            )
+          )
+        : new Map<string, string>(),
+    [scenario]
   )
 
   function handleSelectNode(nodeId: SupplyScenarioSelectableNodeId | null) {
@@ -106,7 +124,7 @@ export function DashboardShell({
               />
             </Link>
             <p className="min-w-0 truncate text-base font-medium text-white/85">
-              {scenario.title}
+              {scenario ? scenario.title : "Upload a CSV to begin"}
             </p>
             <p className="text-sm text-muted-foreground sm:max-w-md sm:border-l sm:border-border/70 sm:pl-5">
               Interactive supply chain graph · geographic intelligence
@@ -124,7 +142,7 @@ export function DashboardShell({
                 Restart onboarding
               </Button>
             ) : null}
-            {scenario.updatedAt && scenario.updatedAt !== "Sample dataset" ? (
+            {scenario && scenario.updatedAt && scenario.updatedAt !== "Sample dataset" ? (
               <div className="text-sm text-muted-foreground">
                 {scenario.updatedAt}
               </div>
@@ -132,25 +150,50 @@ export function DashboardShell({
           </div>
         </header>
 
-        <section className="grid min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)] lg:grid-rows-1">
-          <GraphView
-            className="h-full min-h-0"
-            hoveredNodeId={hoveredNodeId}
-            onHoverNode={handleHoverNode}
-            onSelectNode={handleSelectNode}
-            scenario={scenario}
-            selectedNodeId={selectedNodeId}
-          />
-          <GlobeView
-            className="h-full min-h-0"
-            hoveredNodeId={hoveredNodeId}
-            onHoverNode={handleHoverNode}
-            onSelectNode={handleSelectNode}
-            pinnedManufacturerByComponent={pinnedManufacturerByComponent}
-            scenario={scenario}
-            selectedNodeId={selectedNodeId}
-          />
-        </section>
+        <UploadPanel
+          error={error}
+          onFile={onFile}
+          onReset={onReset}
+          onUseDemo={onUseDemo}
+          status={status}
+        />
+
+        {scenario ? (
+          <section className="grid min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)] lg:grid-rows-1">
+            <GraphView
+              className="h-full min-h-0"
+              hoveredNodeId={hoveredNodeId}
+              onHoverNode={handleHoverNode}
+              onSelectNode={handleSelectNode}
+              scenario={scenario}
+              selectedNodeId={selectedNodeId}
+            />
+            <GlobeView
+              className="h-full min-h-0"
+              hoveredNodeId={hoveredNodeId}
+              onHoverNode={handleHoverNode}
+              onSelectNode={handleSelectNode}
+              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+              scenario={scenario}
+              selectedNodeId={selectedNodeId}
+            />
+          </section>
+        ) : (
+          <section className="panel-surface flex min-h-0 flex-1 items-center justify-center rounded-2xl">
+            <div className="max-w-md text-center">
+              <p className="text-[10px] font-medium tracking-[0.28em] text-white/40 uppercase">
+                Empty state
+              </p>
+              <p className="mt-3 text-base font-medium text-white/80">
+                No data loaded
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-white/48">
+                Drop a CSV above to run the full agent + ML search, or use the
+                demo dataset to preview the dashboard offline.
+              </p>
+            </div>
+          </section>
+        )}
       </div>
     </main>
   )
