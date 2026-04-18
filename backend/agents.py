@@ -39,7 +39,12 @@ You have these tools — use them, do not hallucinate manufacturers:
   • fetch_url(url)                — retrieves text content of a webpage
   • lookup_emission_factor        — XGBoost manufacturing emissions estimate
   • calculate_transport_emissions — GLEC framework transport CO2
-  • score_certifications          — sustainability certification scoring"""
+  • score_certifications          — sustainability certification scoring
+  • run_in_vm(command)            — optional: run a shell command inside a
+                                    persistent Linux VM (curl, jq, git, etc.).
+                                    Use only when a tool isn't available
+                                    locally and a shell command is the shortest
+                                    path; returns {stdout, stderr, exit_code}."""
 
 
 _OUTPUT_SCHEMA = """\

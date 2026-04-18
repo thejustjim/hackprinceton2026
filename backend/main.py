@@ -145,12 +145,25 @@ def _startup() -> None:
     init_db()
     _warn_if_dedalus_sdk_missing()
     _warn_if_search_tools_misconfigured()
+    _warn_if_dcs_sdk_missing()
     # Prime the XGBoost models so the first /search doesn't pay the joblib load.
     try:
         from .ml_bridge import get_emissions_model
         get_emissions_model()
     except Exception as exc:  # noqa: BLE001
         print(f"[startup] EmissionsModel preload failed: {exc}")
+
+
+def _warn_if_dcs_sdk_missing() -> None:
+    """The `dedalus-sdk` package powers the run_in_vm tool (Dedalus Machines)."""
+    try:
+        import dedalus_sdk  # noqa: F401
+    except ModuleNotFoundError:
+        print(
+            "[startup] dedalus_sdk is not installed — the run_in_vm tool will "
+            "return an error to the agent. Install with `pip install dedalus-sdk`.",
+            flush=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +639,35 @@ async def _search_components(req: SearchRequest) -> SearchResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/machine")
+async def machine_status() -> dict:
+    """
+    Inspect / bootstrap the Dedalus Machine this backend uses for the
+    `run_in_vm` tool. Runs a trivial `echo` so judges can verify the VM is
+    alive end-to-end. Returns HTTP 503 if dedalus-sdk isn't installed or the
+    DCS API is unreachable.
+    """
+    try:
+        from .dcs import run_command, get_or_create_machine_id  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"dedalus-sdk not installed: {exc}. `pip install dedalus-sdk`.",
+        ) from exc
+
+    try:
+        result = run_command(
+            ["/bin/bash", "-c", "echo greenchain-alive && uname -sr"],
+            timeout_s=45,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"DCS call failed ({type(exc).__name__}): {exc}",
+        ) from exc
+    return result
 
 
 @app.post("/search", response_model=SearchResponse)
