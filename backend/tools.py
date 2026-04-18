@@ -241,7 +241,7 @@ def score_certifications(certifications: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-#  Tool 4 — web_search (DuckDuckGo HTML scrape, no API key required)
+#  Tool 4 — web_search (Brave Search API; requires BRAVE_API_KEY)
 # ---------------------------------------------------------------------------
 
 def web_search(query: str, max_results: int = 8) -> list[dict]:

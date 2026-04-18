@@ -17,10 +17,12 @@ cd backend
 cp .env.example .env       # then fill in your API keys
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # includes `dedalus-labs` — required for `import dedalus_labs`
 cd ..                      # run uvicorn from repo root so the `backend.*` package resolves
 uvicorn backend.main:app --reload --port 8000
 ```
+
+If you see **`No module named 'dedalus_labs'`**, the API process is using a Python environment where dependencies were not installed (e.g. system Python vs `.venv`). Activate `backend/.venv`, re-run `pip install -r requirements.txt`, and start **uvicorn from that same shell** (or point your IDE’s interpreter to `backend/.venv`).
 
 Open `http://localhost:8000/docs` for the interactive Swagger UI.
 
@@ -31,6 +33,10 @@ Open `http://localhost:8000/docs` for the interactive Swagger UI.
 | `DEDALUS_API_KEY` | https://dedaluslabs.ai |
 | `ANTHROPIC_API_KEY` | https://console.anthropic.com |
 | `BRAVE_API_KEY` | https://api.search.brave.com/app/keys (free tier: 2k queries/month) |
+
+If `/search` with `components` returns **502** or the dashboard shows a search error, read the `detail` message: it is usually a missing key or a Dedalus/network failure. The backend previously substituted **mock** manufacturers on any agent error (making failures look like “success”). That mock path is now **off by default**; set `GREENCHAIN_ALLOW_MOCK_COMPONENT_SEARCH=1` in `backend/.env` only when you intentionally want fake results without API keys.
+
+On startup, the backend prints warnings when `BRAVE_API_KEY` or Dedalus/Anthropic keys are missing.
 
 ## Frontend setup
 

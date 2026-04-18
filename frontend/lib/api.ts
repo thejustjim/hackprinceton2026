@@ -116,10 +116,17 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(
-      `Search failed (${response.status}): ${detail || response.statusText}`
-    )
+    const text = await response.text().catch(() => response.statusText)
+    let detail = text || response.statusText
+    try {
+      const parsed = JSON.parse(text) as { detail?: string | { msg: string }[] }
+      if (typeof parsed.detail === "string") {
+        detail = parsed.detail
+      }
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(`Search failed (${response.status}): ${detail}`)
   }
 
   return response.json()

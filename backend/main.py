@@ -16,9 +16,13 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -26,6 +30,82 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).parent / ".env")
+
+
+def _allow_mock_component_search() -> bool:
+    v = os.environ.get("GREENCHAIN_ALLOW_MOCK_COMPONENT_SEARCH", "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
+def _missing_component_agent_keys() -> list[str]:
+    return [
+        key
+        for key in ("DEDALUS_API_KEY", "ANTHROPIC_API_KEY", "BRAVE_API_KEY")
+        if not os.environ.get(key, "").strip()
+    ]
+
+
+def _should_fallback_component_search(exc: BaseException) -> bool:
+    if _allow_mock_component_search():
+        return True
+
+    if isinstance(exc, ModuleNotFoundError) and "dedalus" in str(exc).lower():
+        return True
+
+    if _missing_component_agent_keys():
+        return True
+
+    return False
+
+
+def _warn_if_dedalus_sdk_missing() -> None:
+    """The `dedalus-labs` pip package is required for /search; missing installs cause ModuleNotFoundError."""
+    try:
+        import dedalus_labs  # noqa: F401
+    except ModuleNotFoundError:
+        print(
+            "[startup] dedalus_labs is not installed — /search will fail until you install deps in "
+            "the SAME venv that runs uvicorn, e.g.\n"
+            "  cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt",
+            flush=True,
+        )
+
+
+def _component_search_failure_detail(exc: BaseException) -> str:
+    base = f"Component agent pipeline failed ({type(exc).__name__}: {exc})."
+    if isinstance(exc, ModuleNotFoundError) and "dedalus" in str(exc).lower():
+        return (
+            f"{base} Install the Dedalus SDK in the Python environment that runs the API: "
+            "`cd backend && source .venv/bin/activate && pip install -r requirements.txt` "
+            "(package name: dedalus-labs). Then restart uvicorn."
+        )
+    return (
+        f"{base} Configure DEDALUS_API_KEY, ANTHROPIC_API_KEY, and BRAVE_API_KEY in "
+        "backend/.env and check the backend terminal for the full traceback. "
+        "Set GREENCHAIN_ALLOW_MOCK_COMPONENT_SEARCH=1 only for offline demos without real agent keys."
+    )
+
+
+def _warn_if_search_tools_misconfigured() -> None:
+    """Log once at startup — most 'always mock data' reports are missing API keys."""
+    if not os.environ.get("BRAVE_API_KEY", "").strip():
+        print(
+            "[startup] BRAVE_API_KEY is not set — web_search returns {\"error\": ...} "
+            "to the agent (no real manufacturer discovery).",
+            flush=True,
+        )
+    if not os.environ.get("DEDALUS_API_KEY", "").strip():
+        print(
+            "[startup] DEDALUS_API_KEY is not set — Dedalus runs will fail unless "
+            "the SDK sources credentials another way.",
+            flush=True,
+        )
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        print(
+            "[startup] ANTHROPIC_API_KEY is not set — Claude calls via Dedalus may fail.",
+            flush=True,
+        )
+
 
 from .agents import run_supply_chain_research
 from .db import audit_search, init_db
@@ -61,6 +141,8 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    _warn_if_dedalus_sdk_missing()
+    _warn_if_search_tools_misconfigured()
     # Prime the XGBoost models so the first /search doesn't pay the joblib load.
     try:
         from .ml_bridge import get_emissions_model
@@ -434,11 +516,25 @@ async def _search_components(req: SearchRequest) -> SearchResponse:
             ]
         )
     except Exception as exc:  # noqa: BLE001
-        print(f"[component_search] falling back to mock results: {exc}")
-        component_results = [
-            _build_fallback_component_results(req, component, len(req.components))
-            for component in req.components
-        ]
+        logger.exception("component_search failed")
+        if _should_fallback_component_search(exc):
+            missing_keys = _missing_component_agent_keys()
+            reason = f"{type(exc).__name__}: {exc}"
+            if missing_keys:
+                reason = f"{reason}; missing keys: {', '.join(missing_keys)}"
+            print(
+                f"[component_search] using mock manufacturers fallback ({reason}).",
+                flush=True,
+            )
+            component_results = [
+                _build_fallback_component_results(req, component, len(req.components))
+                for component in req.components
+            ]
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail=_component_search_failure_detail(exc),
+            ) from exc
 
     try:
         scored_results = [
