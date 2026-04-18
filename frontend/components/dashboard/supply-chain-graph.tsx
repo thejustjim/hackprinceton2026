@@ -918,7 +918,7 @@ export function SupplyChainGraph({
     }
   }
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = () => {
     if (dragState?.type === "canvas") {
       if (!dragState.moved) {
         onSelectNode(null)
@@ -1256,7 +1256,6 @@ export function SupplyChainGraph({
 
           {/* Nodes */}
           {nodes.map((node, index) => {
-            const d = node.data
             const { w, h } = getNodeSize(node)
             const isSelected = selectedNodeId === node.id
             const isHovered = hoveredNodeId === node.id
@@ -1346,7 +1345,7 @@ export function SupplyChainGraph({
           }
         >
           {/* Panel header */}
-          <div className="flex items-start justify-between gap-2 p-4 pb-3">
+          <div className="relative flex items-start justify-between gap-2 border-b border-white/[0.06] p-4 pb-3">
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[10px] font-medium tracking-[0.2em] text-white/30 uppercase">
                 {selectedMfr
@@ -1388,7 +1387,8 @@ export function SupplyChainGraph({
                     <span
                       className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-[0.12em]"
                       style={{
-                        background: status.badgeBackground,
+                        background:
+                          "color-mix(in oklab, rgb(10 11 18) 74%, transparent)",
                         borderColor: status.badgeBorder,
                         color: status.badgeText,
                       }}
@@ -1407,10 +1407,11 @@ export function SupplyChainGraph({
 
               {/* Eco score ring */}
               <div
-                className="flex items-center gap-4 rounded-xl p-4"
+                className="dashboard-drawer-section flex items-center gap-4 rounded-xl p-4"
                 style={{
-                  background: ecoConfig.bg,
-                  border: `1px solid ${ecoConfig.ring}`,
+                  background: `linear-gradient(180deg, color-mix(in oklab, ${ecoConfig.color} 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))`,
+                  border: `1px solid color-mix(in oklab, ${ecoConfig.color} 34%, rgba(255,255,255,0.06))`,
+                  boxShadow: `0 0 0 1px color-mix(in oklab, ${ecoConfig.color} 8%, transparent), 0 16px 32px rgba(0,0,0,0.22)`,
                 }}
               >
                 <div className="relative flex-shrink-0">
@@ -1472,7 +1473,7 @@ export function SupplyChainGraph({
                   ].map(({ label, value, unit }) => (
                     <div
                       key={label}
-                      className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-2.5"
+                      className="dashboard-drawer-section rounded-lg p-2.5"
                     >
                       <p className="mb-1 text-[9px] text-white/30">{label}</p>
                       <p className="text-sm font-semibold text-white/80">
@@ -1487,7 +1488,7 @@ export function SupplyChainGraph({
               </div>
 
               {/* Mfg range */}
-              <div className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-3">
+              <div className="dashboard-drawer-section rounded-lg p-3">
                 <p className="mb-2 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
                   Mfg Emissions Range (tCO₂e)
                 </p>
@@ -1561,7 +1562,7 @@ export function SupplyChainGraph({
               )}
 
               {/* Location */}
-              <div className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-3">
+              <div className="dashboard-drawer-section rounded-lg p-3">
                 <p className="mb-1.5 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
                   Location
                 </p>
@@ -1579,10 +1580,10 @@ export function SupplyChainGraph({
           {!selectedMfr && (
             <div className="flex-1 px-4 pb-4">
               <div
-                className="rounded-xl border p-4"
+                className="dashboard-drawer-section rounded-xl p-4"
                 style={{
                   background:
-                    "color-mix(in oklab, var(--primary) 8%, rgba(10,10,18,0.94))",
+                    "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
                   borderColor:
                     "color-mix(in oklab, var(--primary) 16%, transparent)",
                 }}
