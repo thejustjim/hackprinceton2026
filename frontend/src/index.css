@@ -1,0 +1,316 @@
+:root {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: #13291e;
+  background:
+    radial-gradient(circle at top left, rgba(55, 138, 96, 0.18), transparent 25%),
+    radial-gradient(circle at top right, rgba(239, 180, 89, 0.16), transparent 28%),
+    linear-gradient(180deg, #f4faf6 0%, #ecf5f0 48%, #e5efe8 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  padding: 2rem;
+}
+
+.hero-card,
+.panel {
+  border: 1px solid rgba(19, 41, 30, 0.08);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 24px 60px rgba(19, 41, 30, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.hero-card {
+  padding: 2rem;
+}
+
+.hero-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.badge-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-content: flex-start;
+  justify-content: flex-end;
+}
+
+.hero-badge,
+.chip {
+  padding: 0.65rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 41, 30, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.chip.active,
+.hero-badge,
+.primary-button {
+  background: #133f2b;
+  color: #f7fff9;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #32704f;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(2.6rem, 8vw, 5rem);
+  line-height: 0.94;
+}
+
+.lede {
+  margin: 1rem 0 0;
+  max-width: 48rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.search-form {
+  margin-top: 2rem;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.field-grid label {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.field-grid input {
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(19, 41, 30, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.primary-button,
+.secondary-button {
+  padding: 0.85rem 1.15rem;
+  border: 0;
+  border-radius: 16px;
+}
+
+.secondary-button {
+  background: #e7f2eb;
+  color: #133f2b;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.column-stack {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.panel {
+  padding: 1.5rem;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-header span,
+.muted,
+dt,
+.result-rank {
+  color: #567264;
+}
+
+.status-feed,
+.results-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.status-line,
+.route-pill {
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  background: #eff7f2;
+}
+
+.graph-shell,
+.map-shell {
+  min-height: 320px;
+  border-radius: 22px;
+  padding: 1rem;
+  background:
+    linear-gradient(180deg, rgba(236, 245, 240, 0.9), rgba(226, 238, 230, 0.95));
+}
+
+.graph-root {
+  display: inline-flex;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: #133f2b;
+  color: #f7fff9;
+}
+
+.graph-country-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.graph-node,
+.result-card,
+.memo-card {
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.map-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.map-route-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.results-panel {
+  margin-top: 1.5rem;
+}
+
+.result-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+}
+
+.score-badge {
+  min-width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: #133f2b;
+  color: #f7fff9;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+}
+
+.score-grid div {
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: #f2f7f4;
+}
+
+.score-grid dt,
+.score-grid dd {
+  margin: 0;
+}
+
+.memo-card {
+  margin-top: 1rem;
+}
+
+@media (max-width: 960px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy,
+  .map-legend {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 1rem;
+  }
+
+  .hero-card,
+  .panel {
+    padding: 1.25rem;
+    border-radius: 22px;
+  }
+
+  .field-grid,
+  .score-grid,
+  .result-card {
+    grid-template-columns: 1fr;
+  }
+}
