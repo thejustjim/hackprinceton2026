@@ -355,6 +355,79 @@ def fetch_url(url: str, max_chars: int = 4000) -> str:
 
 
 # ---------------------------------------------------------------------------
+#  Tool 6 — run_in_vm (Dedalus Cloud Services Machine — persistent Linux VM)
+# ---------------------------------------------------------------------------
+
+def run_in_vm(command: str, timeout_seconds: int = 60, max_output_chars: int = 4000) -> dict:
+    """
+    Execute a shell command inside a persistent Dedalus Linux VM and return
+    stdout/stderr. State on this VM (installed packages, /home files, env vars)
+    PERSISTS across calls and across backend restarts.
+
+    Use this when you need to:
+      - Run a tool that isn't available as a Python package on the FastAPI
+        host (curl, jq, git, pandoc, etc.).
+      - Cache a large dataset between searches (download once, reuse).
+      - Sandbox untrusted commands away from the backend process.
+
+    The command is wrapped in `/bin/bash -c`, so shell features (pipes,
+    redirects, env vars) work normally. First call in a fresh backend process
+    lazily creates/wakes the VM, which can take 5-30s; subsequent calls reuse
+    the already-running VM.
+
+    Args:
+        command:          Shell command to run, e.g. "curl -sS example.com".
+        timeout_seconds:  Hard kill after this many seconds (default 60, cap 300).
+        max_output_chars: Truncate each of stdout/stderr to this many chars
+                          (default 4000, cap 16000) so the agent's context
+                          stays small.
+
+    Returns:
+        dict with: status ("succeeded" | "failed" | "timeout" | "error"),
+        exit_code (int | None), stdout (str), stderr (str), duration_s (float),
+        machine_id (str), truncated (bool). Never raises.
+    """
+    from .dcs import run_command, DCS_EXEC_TIMEOUT_S
+
+    ceiling = max(1, min(int(timeout_seconds or 60), 300))
+    cap = max(500, min(int(max_output_chars or 4000), 16000))
+
+    try:
+        result = run_command(command, timeout_s=ceiling)
+    except ModuleNotFoundError as exc:
+        return {
+            "status": "error",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": (
+                f"dedalus_sdk is not installed ({exc}). Install it with "
+                "`pip install dedalus-sdk` and restart the backend."
+            ),
+            "duration_s": 0.0,
+            "machine_id": None,
+            "truncated": False,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "error",
+            "exit_code": None,
+            "stdout": "",
+            "stderr": f"{type(exc).__name__}: {exc}",
+            "duration_s": 0.0,
+            "machine_id": None,
+            "truncated": False,
+        }
+
+    stdout = result.get("stdout") or ""
+    stderr = result.get("stderr") or ""
+    truncated = len(stdout) > cap or len(stderr) > cap
+    result["stdout"] = stdout[:cap]
+    result["stderr"] = stderr[:cap]
+    result["truncated"] = truncated
+    return result
+
+
+# ---------------------------------------------------------------------------
 #  Public tool list — passed to Dedalus runner.run(tools=...)
 # ---------------------------------------------------------------------------
 
@@ -364,4 +437,5 @@ DEDALUS_TOOLS = [
     lookup_emission_factor,
     calculate_transport_emissions,
     score_certifications,
+    run_in_vm,
 ]
