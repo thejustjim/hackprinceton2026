@@ -1,9 +1,11 @@
 "use client"
 
 import { startTransition, useMemo, useState } from "react"
+import Link from "next/link"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
+import { GreenChainLogo } from "@/components/green-chain-logo"
 import { Button } from "@/components/ui/button"
 import {
   type SupplyScenario,
@@ -94,14 +96,18 @@ export function DashboardShell({
       <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:px-5">
         <header className="flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
-            <div className="min-w-0">
-              <p className="text-xs font-medium tracking-[0.18em] text-white/30 uppercase">
-                GreenChain Demo
-              </p>
-              <p className="mt-1 truncate text-base font-medium text-white/85">
-                {scenario.title}
-              </p>
-            </div>
+            <Link
+              href="/"
+              className="inline-flex shrink-0 items-center transition-opacity hover:opacity-90"
+            >
+              <GreenChainLogo
+                variant="onDark"
+                className="h-7 w-auto sm:h-8 md:h-9"
+              />
+            </Link>
+            <p className="min-w-0 truncate text-base font-medium text-white/85">
+              {scenario.title}
+            </p>
             <p className="text-sm text-muted-foreground sm:max-w-md sm:border-l sm:border-border/70 sm:pl-5">
               Interactive supply chain graph · geographic intelligence
             </p>
@@ -118,9 +124,11 @@ export function DashboardShell({
                 Restart onboarding
               </Button>
             ) : null}
-            <div className="text-sm text-muted-foreground">
-              {scenario.updatedAt}
-            </div>
+            {scenario.updatedAt && scenario.updatedAt !== "Sample dataset" ? (
+              <div className="text-sm text-muted-foreground">
+                {scenario.updatedAt}
+              </div>
+            ) : null}
           </div>
         </header>
 

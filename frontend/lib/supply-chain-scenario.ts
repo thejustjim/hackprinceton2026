@@ -322,7 +322,7 @@ export function createSupplyScenario(
     },
     title: rawScenario.scenario.productName,
     unit: rawScenario.scenario.unit,
-    updatedAt: "Sample dataset",
+    updatedAt: "",
   }
 }
 
