@@ -15,38 +15,33 @@ import {
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
-import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { savePendingScenarioCsv } from "@/lib/scenario-handoff"
 import {
   OPTIONAL_SCENARIO_CSV_HEADERS,
   REQUIRED_SCENARIO_CSV_HEADERS,
-  SCHEMA_VERSION,
   type ScenarioCsvPreview,
   validateScenarioCsvFile,
 } from "@/lib/scenario-csv"
 import { persistDemoDashboardEntry } from "@/lib/dashboard-entry"
+import { sampleSupplyScenario } from "@/lib/supply-chain-scenario"
 import { cn } from "@/lib/utils"
 
 const TEMPLATE_PATH = "/templates/scenario_csv_v2.csv"
+
+const demoDestination = sampleSupplyScenario.destination.location
+const demoComponents = sampleSupplyScenario.components
+  .map((c) => c.label)
+  .join(", ")
+const demoSummaryLine = `${sampleSupplyScenario.title} · ${sampleSupplyScenario.quantity.toLocaleString()} ${sampleSupplyScenario.unit} · ${demoDestination.city}, ${demoDestination.country}`
 
 function PreviewRow({ label, value }: { label: string; value: string }) {
   return (
@@ -167,17 +162,11 @@ export function PostLaunchChoice() {
               <GreenChainLogo variant="onDark" className="h-9 w-auto" />
             </Link>
             <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Launch options</Badge>
-                <Badge variant="outline">{SCHEMA_VERSION}</Badge>
-              </div>
-              <h1 className="mt-4 font-heading text-4xl tracking-[-0.05em] text-white sm:text-5xl">
-                Choose the next step after launch.
+              <h1 className="font-heading text-4xl tracking-[-0.05em] text-white sm:text-5xl">
+                Import a CSV or open the demo
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Upload a scenario CSV here, validate it, then open the live
-                dashboard flow with one current supplier per component and
-                globally searched alternatives.
+                The CSV is validated here before the dashboard runs searches.
               </p>
             </div>
           </div>
@@ -210,31 +199,14 @@ export function PostLaunchChoice() {
         </header>
 
         <section className="flex flex-1 items-center py-10">
-          <div className="grid w-full gap-6 xl:grid-cols-[1.28fr_0.92fr]">
+          <div className="grid w-full gap-6 xl:grid-cols-[1.28fr_0.92fr] xl:items-start">
             <Card className="panel-surface gap-0 rounded-[2rem] border-border/70 bg-card/92 py-0">
               <CardHeader className="gap-4 border-b border-border/70 py-6">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge>Upload CSV</Badge>
-                  <Badge variant="outline">One row per component</Badge>
-                </div>
-                <CardTitle>Upload a scenario CSV</CardTitle>
+                <CardTitle>Scenario CSV</CardTitle>
                 <CardDescription>
-                  Provide a CSV version of the live search request shape. We
-                  validate it here, then hand it to the dashboard to run the
-                  component searches and render the scenario.
+                  One row per component; columns repeat the scenario on each
+                  row.
                 </CardDescription>
-                <CardAction className="hidden xl:block">
-                  <Button asChild variant="outline" size="sm">
-                    <a href={TEMPLATE_PATH} download>
-                      <HugeiconsIcon
-                        icon={DownloadSquare01Icon}
-                        strokeWidth={2}
-                        data-icon="inline-start"
-                      />
-                      Download template
-                    </a>
-                  </Button>
-                </CardAction>
               </CardHeader>
 
               <CardContent className="flex flex-col gap-6 py-6">
@@ -263,7 +235,7 @@ export function PostLaunchChoice() {
                   }}
                   onDrop={handleDrop}
                   className={cn(
-                    "flex min-h-72 w-full flex-col items-center justify-center gap-5 rounded-[1.6rem] border border-dashed px-6 py-10 text-center transition-colors",
+                    "flex min-h-52 w-full flex-col items-center justify-center gap-4 rounded-[1.6rem] border border-dashed px-6 py-8 text-center transition-colors",
                     isDragging
                       ? "border-primary bg-primary/8"
                       : "border-border bg-background/35 hover:border-primary/50 hover:bg-background/50"
@@ -274,22 +246,18 @@ export function PostLaunchChoice() {
                   </div>
                   <div className="max-w-lg">
                     <p className="text-lg font-medium text-foreground">
-                      Drag a CSV here or choose a file
+                      Drop a file or browse
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Accepted in v2: repeat the scenario columns on each row,
-                      with one current supplier row per component. Use pipe
-                      delimiters for certifications such as{" "}
+                      Pipe-delimited lists in cells where needed, e.g.{" "}
                       <code>iso14001|sbt_committed</code>.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline">Required: product</Badge>
-                    <Badge variant="outline">quantity</Badge>
-                    <Badge variant="outline">destination</Badge>
-                    <Badge variant="outline">component</Badge>
-                    <Badge variant="outline">current_manufacturer</Badge>
-                    <Badge variant="outline">current_country</Badge>
+                    <span className="text-muted-foreground/90">
+                      Required columns:{" "}
+                      {REQUIRED_SCENARIO_CSV_HEADERS.join(", ")}
+                    </span>
                   </div>
                 </button>
 
@@ -300,106 +268,31 @@ export function PostLaunchChoice() {
                 ) : null}
 
                 {preview ? (
-                  <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-                    <section className="rounded-[1.4rem] border border-border/70 bg-background/35 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            Parsed preview
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {preview.filename}
-                          </p>
-                        </div>
-                        <Badge variant="outline">Ready to submit</Badge>
-                      </div>
+                  <section className="rounded-[1.4rem] border border-border/70 bg-background/35 p-4">
+                    <p className="text-xs text-muted-foreground">
+                      {preview.filename}
+                    </p>
 
-                      <div className="mt-4">
-                        <Table>
-                          <TableBody>
-                            {previewRows.map(([label, value]) => (
-                              <PreviewRow
-                                key={label}
-                                label={label}
-                                value={value}
-                              />
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </section>
+                    <div className="mt-4">
+                      <Table>
+                        <TableBody>
+                          {previewRows.map(([label, value]) => (
+                            <PreviewRow
+                              key={label}
+                              label={label}
+                              value={value}
+                            />
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
 
-                    <section className="rounded-[1.4rem] border border-border/70 bg-background/35 p-4">
-                      <div className="flex flex-col gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            Schema notes
-                          </p>
-                          <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                            This schema mirrors the backend search request shape
-                            used by the live dashboard search.
-                          </p>
-                        </div>
-
-                        <Separator />
-
-                        <div className="grid gap-3 text-sm text-muted-foreground">
-                          <div>
-                            <p className="font-medium text-foreground">
-                              Required headers
-                            </p>
-                            <p className="mt-1 leading-6">
-                              {REQUIRED_SCENARIO_CSV_HEADERS.join(", ")}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">
-                              Optional headers
-                            </p>
-                            <p className="mt-1 leading-6">
-                              {OPTIONAL_SCENARIO_CSV_HEADERS.join(", ")}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">
-                              List format
-                            </p>
-                            <p className="mt-1 leading-6">
-                              Use pipe-delimited values inside a single cell for
-                              certifications, for example{" "}
-                              <code>iso14001|sbt_committed</code>.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </section>
-                  </div>
-                ) : (
-                  <Empty className="rounded-[1.6rem] border-border/70 bg-background/28">
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <HugeiconsIcon icon={FileImportIcon} strokeWidth={2} />
-                      </EmptyMedia>
-                      <EmptyTitle>No CSV loaded yet</EmptyTitle>
-                      <EmptyDescription>
-                        Choose a file to validate the schema, preview the parsed
-                        values, and submit it for future processing.
-                      </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                      <Button asChild variant="outline">
-                        <a href={TEMPLATE_PATH} download>
-                          <HugeiconsIcon
-                            icon={DownloadSquare01Icon}
-                            strokeWidth={2}
-                            data-icon="inline-start"
-                          />
-                          Download template
-                        </a>
-                      </Button>
-                    </EmptyContent>
-                  </Empty>
-                )}
+                    <p className="mt-4 border-t border-border/60 pt-4 text-xs leading-5 text-muted-foreground">
+                      Optional CSV columns:{" "}
+                      {OPTIONAL_SCENARIO_CSV_HEADERS.join(", ")}
+                    </p>
+                  </section>
+                ) : null}
 
                 {uploadError ? (
                   <div className="rounded-2xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
@@ -409,11 +302,7 @@ export function PostLaunchChoice() {
 
               </CardContent>
 
-              <CardFooter className="flex flex-wrap justify-between gap-3 border-t border-border/70 py-5">
-                <div className="text-sm text-muted-foreground">
-                  Submitting opens the live dashboard and starts the component
-                  searches with this CSV.
-                </div>
+              <CardFooter className="flex flex-wrap justify-end gap-3 border-t border-border/70 py-5">
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
                     variant="outline"
@@ -450,60 +339,43 @@ export function PostLaunchChoice() {
               </CardFooter>
             </Card>
 
-            <Card className="panel-surface h-full gap-0 rounded-[2rem] border-border/70 bg-card/92 py-0">
-              <CardHeader className="gap-4 border-b border-border/70 py-6">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge>Demo</Badge>
-                  <Badge variant="outline">Current sample</Badge>
-                </div>
-                <CardTitle>Continue with the demo</CardTitle>
-                <CardDescription>
-                  Open the current lint-roller sample dashboard with the
-                  existing graph and globe views. This path stays unchanged and
-                  is still the only dashboard experience in this iteration.
+            <Card className="panel-surface h-fit gap-0 rounded-[2rem] border-border/70 bg-card/92 py-0">
+              <CardHeader className="gap-2 border-b border-border/70 py-4">
+                <CardTitle>Demo</CardTitle>
+                <CardDescription className="text-sm leading-relaxed">
+                  {demoSummaryLine}
                 </CardDescription>
               </CardHeader>
 
-              <CardContent className="flex flex-1 flex-col gap-6 py-6">
-                <div className="rounded-[1.6rem] border border-border/70 bg-background/35 p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="flex size-12 items-center justify-center rounded-full border border-border/70 bg-muted/30">
-                      <HugeiconsIcon icon={MapsGlobal01Icon} strokeWidth={2} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-lg font-medium text-foreground">
-                        Sample scenario
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Lint Roller, 10,000 units, destination Chicago. The
-                        dashboard opens with the current sample graph and lets
-                        you inspect the existing manufacturer and route options.
-                      </p>
-                    </div>
+              <CardContent className="py-4">
+                <div className="grid gap-2.5 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-2.5">
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      strokeWidth={2}
+                      className="mt-0.5 shrink-0 text-primary"
+                    />
+                    <span>
+                      Supply components:{" "}
+                      <span className="text-foreground">{demoComponents}</span>
+                    </span>
                   </div>
-                </div>
-
-                <div className="grid gap-3">
-                  {[
-                    "Direct access to the current graph + globe dashboard",
-                    "No CSV upload required to keep the demo path fast",
-                    "Unaffected by the new intake flow",
-                  ].map((item) => (
-                    <div key={item} className="flex items-start gap-3">
-                      <HugeiconsIcon
-                        icon={Tick02Icon}
-                        strokeWidth={2}
-                        className="mt-0.5 text-primary"
-                      />
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {item}
-                      </p>
-                    </div>
-                  ))}
+                  <div className="flex items-start gap-2.5">
+                    <HugeiconsIcon
+                      icon={Tick02Icon}
+                      strokeWidth={2}
+                      className="mt-0.5 shrink-0 text-primary"
+                    />
+                    <span>
+                      {sampleSupplyScenario.stats.graphNodeCount} graph nodes,{" "}
+                      {sampleSupplyScenario.stats.routeCount} routes — same data
+                      as <code className="text-xs">sampledata.json</code>
+                    </span>
+                  </div>
                 </div>
               </CardContent>
 
-              <CardFooter className="border-t border-border/70 py-5">
+              <CardFooter className="border-t border-border/70 py-4">
                 <Button asChild className="w-full">
                   <Link
                     href="/dashboard"
