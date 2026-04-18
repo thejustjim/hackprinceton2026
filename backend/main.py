@@ -15,6 +15,7 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any
@@ -28,8 +29,14 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from .agents import run_supply_chain_research
 from .db import audit_search, init_db
-from .ml_scorer import compute_composite_scores
+from .ml_scorer import compute_composite_scores, parse_agent_output
 from .transport import rescore_transport
+from .tools import (
+    calculate_transport_emissions,
+    infer_naics,
+    lookup_emission_factor,
+    score_certifications,
+)
 
 
 app = FastAPI(
@@ -68,9 +75,20 @@ def _startup() -> None:
 
 
 class SearchRequest(BaseModel):
-    product: str = Field(..., description="Product name, e.g. 'cotton t-shirts'")
+    product: str = Field(
+        ...,
+        description="Product name, e.g. 'cotton t-shirts' or the parent product for a scenario search",
+    )
     quantity: int = Field(..., ge=1, description="Unit count")
     destination: str = Field(..., description="ISO country code of final destination")
+    components: list["ScenarioComponentRequest"] = Field(
+        default_factory=list,
+        description=(
+            "Optional component rows for a multi-component scenario search. "
+            "When present, the backend scores each current supplier plus global "
+            "alternatives for that component."
+        ),
+    )
     countries: list[str] = Field(
         default_factory=list,
         description=(
@@ -90,7 +108,8 @@ class SearchRequest(BaseModel):
         description=(
             "Optional manufacturer count. In per-country mode, splits across "
             "the country list (min 1 each). In global mode, total worldwide. "
-            "Defaults: 5/country (per-country), 6 (global)."
+            "Defaults: 5/country (per-country), 6 (global). When `components` "
+            "is present this applies per component."
         ),
     )
     weights: dict[str, float] | None = Field(
@@ -102,6 +121,41 @@ class SearchRequest(BaseModel):
         ),
     )
 
+
+class ScenarioComponentRequest(BaseModel):
+    component: str = Field(..., description="Component or material label, e.g. 'adhesive'")
+    current_manufacturer: str = Field(..., description="Current supplier name")
+    current_country: str = Field(..., description="ISO country code of the current supplier")
+    current_city: str | None = Field(
+        None,
+        description="Optional city of the current supplier",
+    )
+    current_website: str | None = Field(
+        None,
+        description="Optional website or sustainability page URL",
+    )
+    current_certifications: list[str] = Field(
+        default_factory=list,
+        description="Known certifications for the current supplier",
+    )
+    current_disclosure_status: str = Field(
+        "none",
+        description="verified | partial | none",
+    )
+    current_revenue_usd_m: float | None = Field(
+        None,
+        ge=0.01,
+        description="Optional annual revenue estimate in USD millions",
+    )
+    current_renewable_pct: float | None = Field(
+        None,
+        ge=0,
+        le=100,
+        description="Optional renewable energy percentage for the current supplier",
+    )
+
+
+SearchRequest.model_rebuild()
 
 class SearchResponse(BaseModel):
     product: str
@@ -125,6 +179,169 @@ class ScoreRequest(BaseModel):
     weights: dict[str, float] | None = None
 
 
+def _normalise_name(value: str) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _dedupe_manufacturers(manufacturers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+
+    for manufacturer in manufacturers:
+        key = (
+            _normalise_name(str(manufacturer.get("name") or "")),
+            str(manufacturer.get("country") or "").strip().upper(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(manufacturer)
+
+    return deduped
+
+
+def _build_current_manufacturer(
+    *,
+    component: ScenarioComponentRequest,
+    destination: str,
+    transport_mode: str,
+    quantity: int,
+    component_count: int,
+) -> dict[str, Any]:
+    naics_hint = infer_naics(component.component)
+    shipment_weight_kg = max(1.0, float(quantity) * 0.5 / max(component_count, 1))
+    renewable_pct = (
+        float(component.current_renewable_pct) / 100.0
+        if component.current_renewable_pct is not None
+        else 0.0
+    )
+
+    return {
+        "name": component.current_manufacturer,
+        "country": component.current_country.upper(),
+        "city": component.current_city,
+        "sustainability_url": component.current_website,
+        "certifications": component.current_certifications,
+        "emission_factor": lookup_emission_factor(
+            naics_code=naics_hint,
+            country_iso=component.current_country.upper(),
+            revenue_usd_m=component.current_revenue_usd_m or 25.0,
+            year=2023,
+            renewable_pct=renewable_pct,
+        ),
+        "transport": calculate_transport_emissions(
+            origin_country=component.current_country.upper(),
+            destination_country=destination,
+            weight_kg=shipment_weight_kg,
+            mode=transport_mode,
+        ),
+        "cert_score": score_certifications(component.current_certifications),
+        "disclosure_status": component.current_disclosure_status,
+        "component": component.component,
+        "is_current": True,
+    }
+
+
+async def _run_component_search(
+    req: SearchRequest,
+    component: ScenarioComponentRequest,
+    component_count: int,
+) -> list[dict[str, Any]]:
+    shipment_weight_kg = max(1.0, float(req.quantity) * 0.5 / max(component_count, 1))
+
+    raw_output = await run_supply_chain_research(
+        product=component.component,
+        product_context=req.product,
+        quantity=req.quantity,
+        countries=[],
+        destination=req.destination,
+        transport_mode=req.transport_mode,
+        require_certifications=req.require_certifications or None,
+        shipment_weight_kg=shipment_weight_kg,
+        target_count=req.target_count,
+    )
+
+    alternatives = []
+    for manufacturer in parse_agent_output(raw_output):
+        next_manufacturer = {
+            **manufacturer,
+            "component": component.component,
+            "is_current": False,
+        }
+        alternatives.append(next_manufacturer)
+
+    current_manufacturer = _build_current_manufacturer(
+        component=component,
+        destination=req.destination,
+        transport_mode=req.transport_mode,
+        quantity=req.quantity,
+        component_count=component_count,
+    )
+
+    return _dedupe_manufacturers([current_manufacturer, *alternatives])
+
+
+async def _search_components(req: SearchRequest) -> SearchResponse:
+    start = time.monotonic()
+
+    try:
+        component_results = await asyncio.gather(
+            *[
+                _run_component_search(req, component, len(req.components))
+                for component in req.components
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Component search failed: {type(exc).__name__}: {exc}",
+        )
+
+    try:
+        scored_results = [
+            compute_composite_scores(
+                raw_results=component_manufacturers,
+                transport_mode=req.transport_mode,
+                weights=req.weights,
+            )
+            for component_manufacturers in component_results
+        ]
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scoring failed: {type(exc).__name__}: {exc}",
+        )
+
+    flattened_results = [
+        manufacturer
+        for component_manufacturers in scored_results
+        for manufacturer in component_manufacturers
+    ]
+    duration = round(time.monotonic() - start, 2)
+
+    try:
+        audit_search(
+            product=req.product,
+            countries=[],
+            transport_mode=req.transport_mode,
+            destination=req.destination,
+            duration_seconds=duration,
+            result_count=len(flattened_results),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[audit_search] non-fatal failure: {exc}")
+
+    return SearchResponse(
+        product=req.product,
+        destination=req.destination,
+        transport_mode=req.transport_mode,
+        countries=[],
+        duration_seconds=duration,
+        count=len(flattened_results),
+        results=flattened_results,
+    )
+
+
 # ---------------------------------------------------------------------------
 #  Routes
 # ---------------------------------------------------------------------------
@@ -138,6 +355,9 @@ async def health() -> dict:
 @app.post("/search", response_model=SearchResponse)
 async def search(req: SearchRequest) -> SearchResponse:
     """Run the Dedalus agent + ML scoring pipeline and return the full result."""
+    if req.components:
+        return await _search_components(req)
+
     start = time.monotonic()
 
     try:

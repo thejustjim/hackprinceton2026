@@ -23,6 +23,7 @@ interface DashboardShellProps {
   onReset: () => void
   onUseDemo: () => void
   scenario: SupplyScenario | null
+  showUploadPanel?: boolean
   status: UploadPanelStatus
 }
 
@@ -52,6 +53,7 @@ export function DashboardShell({
   onReset,
   onUseDemo,
   scenario,
+  showUploadPanel = true,
   status,
 }: DashboardShellProps) {
   const [selectedNodeId, setSelectedNodeId] =
@@ -150,13 +152,15 @@ export function DashboardShell({
           </div>
         </header>
 
-        <UploadPanel
-          error={error}
-          onFile={onFile}
-          onReset={onReset}
-          onUseDemo={onUseDemo}
-          status={status}
-        />
+        {showUploadPanel ? (
+          <UploadPanel
+            error={error}
+            onFile={onFile}
+            onReset={onReset}
+            onUseDemo={onUseDemo}
+            status={status}
+          />
+        ) : null}
 
         {scenario ? (
           <section className="grid min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)] lg:grid-rows-1">
@@ -182,15 +186,34 @@ export function DashboardShell({
           <section className="panel-surface flex min-h-0 flex-1 items-center justify-center rounded-2xl">
             <div className="max-w-md text-center">
               <p className="text-[10px] font-medium tracking-[0.28em] text-white/40 uppercase">
-                Empty state
+                {status === "loading" ? "Processing" : "Empty state"}
               </p>
               <p className="mt-3 text-base font-medium text-white/80">
-                No data loaded
+                {status === "loading"
+                  ? "Building your scenario"
+                  : error
+                    ? "Scenario could not be loaded"
+                    : "No data loaded"}
               </p>
               <p className="mt-2 text-sm leading-relaxed text-white/48">
-                Drop a CSV above to run the full agent + ML search, or use the
-                demo dataset to preview the dashboard offline.
+                {status === "loading"
+                  ? "Running the agent and ML scoring flow for each component."
+                  : error
+                    ? error
+                    : showUploadPanel
+                      ? "Drop a CSV above to run the full agent + ML search, or use the demo dataset to preview the dashboard offline."
+                      : "Upload scenarios from the launch page. This dashboard is for results only."}
               </p>
+              {!showUploadPanel && status !== "loading" ? (
+                <div className="mt-5 flex items-center justify-center gap-3">
+                  <Button asChild variant="outline">
+                    <Link href="/launch">Go To Launch</Link>
+                  </Button>
+                  <Button type="button" onClick={onUseDemo}>
+                    Use Demo Data
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </section>
         )}

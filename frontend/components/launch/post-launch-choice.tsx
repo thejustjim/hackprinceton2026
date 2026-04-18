@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowRight01Icon,
@@ -34,7 +35,7 @@ import {
 } from "@/components/ui/empty"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { getApiBaseUrl } from "@/lib/api-base-url"
+import { savePendingScenarioCsv } from "@/lib/scenario-handoff"
 import {
   OPTIONAL_SCENARIO_CSV_HEADERS,
   REQUIRED_SCENARIO_CSV_HEADERS,
@@ -44,15 +45,7 @@ import {
 } from "@/lib/scenario-csv"
 import { cn } from "@/lib/utils"
 
-type DatasetIntakeResponse = {
-  id: string
-  status: "uploaded"
-  filename: string
-  row_count: number
-  schema_version: string
-}
-
-const TEMPLATE_PATH = "/templates/scenario_csv_v1.csv"
+const TEMPLATE_PATH = "/templates/scenario_csv_v2.csv"
 
 function PreviewRow({ label, value }: { label: string; value: string }) {
   return (
@@ -66,6 +59,7 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
 }
 
 export function PostLaunchChoice() {
+  const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -73,14 +67,12 @@ export function PostLaunchChoice() {
   const [preview, setPreview] = useState<ScenarioCsvPreview | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [intake, setIntake] = useState<DatasetIntakeResponse | null>(null)
 
   async function loadFile(nextFile: File) {
     setSelectedFile(null)
     setPreview(null)
     setValidationError(null)
     setUploadError(null)
-    setIntake(null)
 
     try {
       const text = await nextFile.text()
@@ -123,26 +115,15 @@ export function PostLaunchChoice() {
     setUploadError(null)
 
     try {
-      const formData = new FormData()
-      formData.append("file", selectedFile)
-
-      const response = await fetch(`${getApiBaseUrl()}/dataset-intakes`, {
-        body: formData,
-        method: "POST",
-      })
-
-      const payload = await response.json().catch(() => null)
-      if (!response.ok) {
-        const detail =
-          payload && typeof payload.detail === "string"
-            ? payload.detail
-            : "Upload failed."
-        throw new Error(detail)
-      }
-
-      setIntake(payload as DatasetIntakeResponse)
+      const text = await selectedFile.text()
+      savePendingScenarioCsv(text)
+      router.push("/dashboard?handoff=1")
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Upload failed.")
+      setUploadError(
+        error instanceof Error
+          ? error.message
+          : "Could not open this scenario in the dashboard."
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -153,21 +134,20 @@ export function PostLaunchChoice() {
         ["Product", preview.normalized.product],
         ["Quantity", preview.normalized.quantity.toString()],
         ["Destination", preview.normalized.destination],
-        [
-          "Countries",
-          preview.normalized.countries.length > 0
-            ? preview.normalized.countries.join(" | ")
-            : "Global search",
-        ],
+        ["Unit", preview.normalized.unit],
         ["Transport mode", preview.normalized.transportMode],
+        ["Components", preview.normalized.componentCount.toString()],
         [
-          "Required certifications",
-          preview.normalized.requireCertifications.length > 0
-            ? preview.normalized.requireCertifications.join(" | ")
-            : "None",
+          "Current suppliers",
+          preview.normalized.components
+            .map(
+              (component) =>
+                `${component.component}: ${component.currentManufacturer}`
+            )
+            .join(" | "),
         ],
         [
-          "Target count",
+          "Alternates per component",
           preview.normalized.targetCount?.toString() ??
             "Default backend behavior",
         ],
@@ -194,10 +174,9 @@ export function PostLaunchChoice() {
                 Choose the next step after launch.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Upload a scenario CSV for future dataset processing, or continue
-                straight into the existing demo dashboard. The upload path in
-                this version accepts and stores the file without generating a
-                new dashboard yet.
+                Upload a scenario CSV here, validate it, then open the live
+                dashboard flow with one current supplier per component and
+                globally searched alternatives.
               </p>
             </div>
           </div>
@@ -232,13 +211,13 @@ export function PostLaunchChoice() {
               <CardHeader className="gap-4 border-b border-border/70 py-6">
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge>Upload CSV</Badge>
-                  <Badge variant="outline">One scenario row</Badge>
+                  <Badge variant="outline">One row per component</Badge>
                 </div>
                 <CardTitle>Upload a scenario CSV</CardTitle>
                 <CardDescription>
-                  Provide a CSV version of the backend search request shape. We
-                  validate it now, store it for later processing, and keep the
-                  current demo dashboard separate.
+                  Provide a CSV version of the live search request shape. We
+                  validate it here, then hand it to the dashboard to run the
+                  component searches and render the scenario.
                 </CardDescription>
                 <CardAction className="hidden xl:block">
                   <Button asChild variant="outline" size="sm">
@@ -294,16 +273,19 @@ export function PostLaunchChoice() {
                       Drag a CSV here or choose a file
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Accepted in v1: one scenario row plus header. Use pipe
-                      delimiters inside cells such as <code>CN|PT|BD</code>.
+                      Accepted in v2: repeat the scenario columns on each row,
+                      with one current supplier row per component. Use pipe
+                      delimiters for certifications such as{" "}
+                      <code>iso14001|sbt_committed</code>.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
                     <Badge variant="outline">Required: product</Badge>
                     <Badge variant="outline">quantity</Badge>
                     <Badge variant="outline">destination</Badge>
-                    <Badge variant="outline">countries</Badge>
-                    <Badge variant="outline">transport_mode</Badge>
+                    <Badge variant="outline">component</Badge>
+                    <Badge variant="outline">current_manufacturer</Badge>
+                    <Badge variant="outline">current_country</Badge>
                   </div>
                 </button>
 
@@ -350,8 +332,8 @@ export function PostLaunchChoice() {
                             Schema notes
                           </p>
                           <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                            This intake mirrors the backend search request shape
-                            and stores the original CSV for later processing.
+                            This schema mirrors the backend search request shape
+                            used by the live dashboard search.
                           </p>
                         </div>
 
@@ -379,8 +361,9 @@ export function PostLaunchChoice() {
                               List format
                             </p>
                             <p className="mt-1 leading-6">
-                              Use pipe-delimited values inside a single cell,
-                              for example <code>iso14001|sbt_committed</code>.
+                              Use pipe-delimited values inside a single cell for
+                              certifications, for example{" "}
+                              <code>iso14001|sbt_committed</code>.
                             </p>
                           </div>
                         </div>
@@ -420,64 +403,12 @@ export function PostLaunchChoice() {
                   </div>
                 ) : null}
 
-                {intake ? (
-                  <div className="rounded-[1.6rem] border border-primary/25 bg-primary/8 p-5">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Badge>Uploaded</Badge>
-                      <span className="text-sm text-muted-foreground">
-                        Accepted for future dataset processing
-                      </span>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                          Intake ID
-                        </p>
-                        <p className="mt-1 font-mono text-sm text-foreground">
-                          {intake.id}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                          Status
-                        </p>
-                        <p className="mt-1 text-sm text-foreground">
-                          {intake.status}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                          Row count
-                        </p>
-                        <p className="mt-1 text-sm text-foreground">
-                          {intake.row_count}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                          Filename
-                        </p>
-                        <p className="mt-1 text-sm text-foreground">
-                          {intake.filename}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs tracking-[0.18em] text-muted-foreground uppercase">
-                          Schema
-                        </p>
-                        <p className="mt-1 text-sm text-foreground">
-                          {intake.schema_version}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
               </CardContent>
 
               <CardFooter className="flex flex-wrap justify-between gap-3 border-t border-border/70 py-5">
                 <div className="text-sm text-muted-foreground">
-                  The file is stored as an intake artifact. This step does not
-                  generate a new graph dashboard yet.
+                  Submitting opens the live dashboard and starts the component
+                  searches with this CSV.
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <Button
@@ -498,7 +429,7 @@ export function PostLaunchChoice() {
                           strokeWidth={2}
                           data-icon="inline-start"
                         />
-                        Submitting
+                        Opening dashboard
                       </>
                     ) : (
                       <>
@@ -507,7 +438,7 @@ export function PostLaunchChoice() {
                           strokeWidth={2}
                           data-icon="inline-start"
                         />
-                        Submit CSV
+                        Open in dashboard
                       </>
                     )}
                   </Button>
