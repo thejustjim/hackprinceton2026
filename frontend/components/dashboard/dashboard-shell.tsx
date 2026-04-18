@@ -28,22 +28,17 @@ export function DashboardShell({ data }: DashboardShellProps) {
         <header className="flex items-center justify-between border-b border-border/70 pb-3">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-medium tracking-tight text-foreground">
-              {data.title}
+              GreenChain · Supply Intelligence
             </h1>
             <p className="text-sm text-muted-foreground">
-              Graph left, globe right.
+              Interactive supply chain graph · geographic intelligence
             </p>
           </div>
           <div className="text-sm text-muted-foreground">{data.updatedAt}</div>
         </header>
 
         <section className="grid flex-1 gap-4 lg:grid-cols-[1.45fr_minmax(360px,0.9fr)]">
-          <GraphView
-            data={data}
-            className="min-h-[32rem] lg:min-h-0"
-            selectedEntityId={deferredEntityId}
-            onSelectEntity={handleSelectEntity}
-          />
+          <GraphView className="min-h-[32rem] lg:min-h-0" />
           <GlobeView
             data={data}
             className="min-h-[32rem] lg:min-h-0"
