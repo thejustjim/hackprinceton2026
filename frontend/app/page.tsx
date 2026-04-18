@@ -67,6 +67,18 @@ const IMPACT_STATS: Metric[] = [
 
 const FEATURES: Feature[] = [
   {
+    img: IMG.warehouse,
+    label: "Prototype Flow",
+    title: "Compare sourcing scenarios quickly.",
+    body:
+      "The brief is intentionally focused: compare a few sourcing options quickly, show what drives the footprint, and make the transport tradeoff obvious.",
+    bullets: [
+      "Product, quantity, and destination input",
+      "Country and transport mode comparison",
+      "Quick ranked output for sourcing teams",
+    ],
+  },
+  {
     img: IMG.engineers,
     label: "Supply Chain Graph",
     title: "See manufacturers and links as a live network.",
@@ -79,7 +91,7 @@ const FEATURES: Feature[] = [
     ],
   },
   {
-    img: IMG.port,
+    img: IMG.globe,
     label: "Geographic View",
     title: "Match the network with real-world location context.",
     body:
@@ -563,7 +575,10 @@ function Hero() {
             href="/"
             className="inline-flex shrink-0 items-center transition-opacity hover:opacity-90"
           >
-            <GreenChainLogo className="h-8 w-auto sm:h-9 md:h-10" />
+            <GreenChainLogo
+              variant="onDark"
+              className="h-8 w-auto sm:h-9 md:h-10"
+            />
           </Link>
 
           <nav className="hidden items-center gap-8 md:flex">
@@ -704,24 +719,6 @@ function Hero() {
   )
 }
 
-function Ticker() {
-  return (
-    <section className="border-b border-white/8 bg-black/18">
-      <div className="animate-marquee flex min-w-max gap-12 py-5">
-        {[...TICKER, ...TICKER].map((item, index) => (
-          <span
-            key={`${item}-${index}`}
-            className="inline-flex items-center gap-4 whitespace-nowrap text-[0.68rem] uppercase tracking-[0.26em] text-white/42"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-            {item}
-          </span>
-        ))}
-      </div>
-    </section>
-  )
-}
-
 function Manifesto() {
   const { ref, inView } = useInView(0.22)
 
@@ -747,231 +744,58 @@ function Manifesto() {
         </Reveal>
       </div>
 
-      <div className="mx-auto mt-16 grid max-w-screen-xl gap-6 xl:grid-cols-[1.04fr_0.96fr]">
-        <div className="grid gap-4 md:grid-cols-2 md:grid-rows-[1.15fr_0.85fr]">
-          <Reveal className="landing-card-frame md:col-span-2 h-[22rem] rounded-[2rem] md:h-[30rem]">
-            <ParallaxMedia
-              src={IMG.warehouse}
-              alt="GreenChain supplier intelligence workspace"
-              speed={0.1}
-              sizes="(min-width: 1280px) 52vw, 100vw"
-              className="h-full"
-            />
-          </Reveal>
-
-          <Reveal delay={80} className="landing-card-frame h-64 rounded-[2rem] md:h-80">
-            <ParallaxMedia
-              src={IMG.engineers}
-              alt="Operations and engineering team collaborating"
-              speed={0.09}
-              sizes="(min-width: 1280px) 26vw, 100vw"
-              className="h-full"
-            />
-          </Reveal>
-
-          <Reveal
-            delay={140}
-            className="landing-card-frame h-64 rounded-[2rem] md:h-80"
-          >
-            <ParallaxMedia
-              src={IMG.circuit}
-              alt="Close-up detail representing material traceability"
-              speed={0.12}
-              sizes="(min-width: 1280px) 26vw, 100vw"
-              className="h-full"
-            />
-          </Reveal>
-        </div>
-
-        <Reveal delay={120} className="landing-panel rounded-[2rem] p-6 md:p-8">
+      <Reveal className="mx-auto mt-16 max-w-screen-xl landing-panel rounded-[2rem] p-6 md:p-8">
           <Eyebrow className="text-primary/78">How It Scores</Eyebrow>
-          <p className="landing-display mt-4 text-3xl leading-[1.02] tracking-[-0.05em] text-white md:text-4xl">
+          <p className="landing-display mt-4 max-w-3xl text-3xl leading-[1.02] tracking-[-0.05em] text-white md:text-4xl">
             Every option is ranked on a few clear environmental drivers.
           </p>
-          <p className="mt-5 max-w-xl text-base leading-relaxed text-white/62">
+          <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/62">
             GreenChain is built for fast comparison. It helps answer which
             sourcing option looks greener and what factors are driving the gap.
           </p>
 
           <div
             ref={ref}
-            className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/5"
+            className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/5 lg:grid-cols-4"
           >
             {IMPACT_STATS.map((stat) => (
               <StatTile key={stat.label} {...stat} active={inView} />
             ))}
           </div>
 
-          <div className="mt-8 space-y-4">
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
             {MANIFESTO_BULLETS.map((item) => (
-              <div key={item} className="flex gap-3 text-sm text-white/62">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                <span className="leading-relaxed">{item}</span>
+              <div
+                key={item}
+                className="rounded-[1.25rem] border border-white/10 bg-black/16 p-4 text-sm leading-relaxed text-white/62"
+              >
+                {item}
               </div>
             ))}
           </div>
-        </Reveal>
-      </div>
-    </section>
-  )
-}
-
-function ScrollBand() {
-  const sectionRef = useRef<HTMLDivElement>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
-  const prefersReducedMotion = usePrefersReducedMotion()
-
-  const syncTrack = useEffectEvent(() => {
-    if (!sectionRef.current || !trackRef.current || prefersReducedMotion) return
-
-    const rect = sectionRef.current.getBoundingClientRect()
-    const progress = clamp(1 - rect.top / window.innerHeight, 0, 1)
-    trackRef.current.style.transform = `translate3d(${(-progress * 260).toFixed(1)}px, 0, 0)`
-  })
-
-  useEffect(() => {
-    let frame = 0
-
-    const onFrame = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(syncTrack)
-    }
-
-    onFrame()
-    window.addEventListener("scroll", onFrame, { passive: true })
-    window.addEventListener("resize", onFrame)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener("scroll", onFrame)
-      window.removeEventListener("resize", onFrame)
-    }
-  }, [prefersReducedMotion])
-
-  return (
-    <div
-      ref={sectionRef}
-      className="overflow-hidden border-y border-white/8 py-10 md:py-16"
-    >
-      <div ref={trackRef} className="flex gap-10 whitespace-nowrap will-change-transform">
-        {[0, 1, 2].map((index) => (
-          <span
-            key={index}
-            className="landing-display text-[3.6rem] leading-none tracking-[-0.05em] text-white/10 md:text-[5.6rem] lg:text-[8rem]"
-          >
-            Manufacturing · Transport · Grid · Certifications · Climate · Manufacturing · Transport ·
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function StackingCards() {
-  return (
-    <section id="platform" className="px-6 py-24 md:px-10 md:py-32">
-      <div className="mx-auto max-w-screen-xl">
-        <Reveal className="max-w-3xl">
-          <Eyebrow className="text-primary/84">How It Works</Eyebrow>
-          <h2 className="landing-display mt-4 text-4xl leading-[0.95] tracking-[-0.05em] text-white md:text-6xl">
-            From product input to recommendation memo.
-          </h2>
-          <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/62 md:text-lg">
-            GreenChain is easiest to understand as a short workflow: define the
-            sourcing problem, compare options, review the score, and export a
-            quick summary.
-          </p>
-        </Reveal>
-
-        <div className="mt-12 space-y-6">
-          {STACK_CARDS.map((card, index) => {
-            const imageOrder =
-              index % 2 === 0 ? "lg:order-2 lg:pl-2" : "lg:order-1 lg:pr-2"
-            const contentOrder =
-              index % 2 === 0 ? "lg:order-1" : "lg:order-2"
-
-            return (
-              <Reveal key={card.headline} delay={index * 80}>
-                <article className="landing-panel overflow-hidden rounded-[2.1rem]">
-                  <div className="grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-stretch">
-                    <div className={cn("p-8 md:p-10 lg:p-12", contentOrder)}>
-                      <div className="flex items-start justify-between gap-6">
-                        <div>
-                          <Eyebrow className="text-primary/82">{card.eyebrow}</Eyebrow>
-                          <div className="mt-4 inline-flex rounded-full border border-white/12 bg-black/18 px-3 py-1 text-[0.68rem] uppercase tracking-[0.24em] text-white/44 backdrop-blur-xl">
-                            {card.detail}
-                          </div>
-                        </div>
-
-                        <span className="text-sm text-white/30">0{index + 1}</span>
-                      </div>
-
-                      <div className="mt-16 max-w-xl">
-                        <h3 className="landing-display whitespace-pre-line text-4xl leading-[0.94] tracking-[-0.05em] text-white md:text-5xl">
-                          {card.headline}
-                        </h3>
-                        <p className="mt-5 max-w-lg text-sm leading-relaxed text-white/62 md:text-base">
-                          {card.body}
-                        </p>
-
-                        {card.cta ? (
-                          <Link
-                            href="/dashboard"
-                            className="mt-8 inline-flex items-center gap-2 rounded-full bg-white px-7 py-3.5 text-sm font-medium text-[#071015] transition-transform duration-300 hover:-translate-y-0.5"
-                          >
-                            Open Platform
-                            <span aria-hidden>→</span>
-                          </Link>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className={cn("min-h-[20rem] lg:min-h-[32rem]", imageOrder)}>
-                      <div className="relative h-full overflow-hidden border-t border-white/10 lg:border-l lg:border-t-0">
-                        <ParallaxMedia
-                          src={card.img}
-                          alt={card.headline.replace("\n", " ")}
-                          speed={0.08}
-                          sizes="(min-width: 1280px) 48vw, 100vw"
-                          className="h-full"
-                        />
-                        <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(4,9,13,0.12)_0%,_rgba(4,9,13,0.08)_35%,_rgba(4,9,13,0.68)_100%)] lg:bg-[linear-gradient(90deg,_rgba(4,9,13,0.18)_0%,_rgba(4,9,13,0.04)_40%,_rgba(4,9,13,0.58)_100%)]" />
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              </Reveal>
-            )
-          })}
-        </div>
-      </div>
+      </Reveal>
     </section>
   )
 }
 
 function FeatureCard({
   feature,
-  large = false,
   delay = 0,
 }: {
   feature: Feature
-  large?: boolean
   delay?: number
 }) {
   return (
     <Reveal delay={delay} className="h-full">
-      <TiltCard className="landing-panel h-full overflow-hidden rounded-[2rem]">
+      <TiltCard className="landing-panel h-full overflow-hidden rounded-[1.8rem]">
         <div
-          className={cn(
-            "relative overflow-hidden border-b border-white/10",
-            large ? "h-[21rem] md:h-[26rem]" : "h-64 md:h-72",
-          )}
+          className="relative h-64 overflow-hidden border-b border-white/10 md:h-72"
         >
           <ParallaxMedia
             src={feature.img}
             alt={feature.title}
             speed={0.08}
-            sizes={large ? "(min-width: 1280px) 44vw, 100vw" : "(min-width: 1280px) 32vw, 100vw"}
+            sizes="(min-width: 1024px) 44vw, 100vw"
             className="h-full"
           />
           <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(4,9,13,0)_0%,_rgba(4,9,13,0.08)_38%,_rgba(4,9,13,0.72)_100%)]" />
@@ -1016,122 +840,10 @@ function CapabilityGrid() {
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-5 lg:grid-cols-[1.08fr_0.92fr]">
-          <FeatureCard feature={FEATURES[0]} large />
-
-          <div className="grid gap-5">
-            <FeatureCard feature={FEATURES[1]} delay={80} />
-            <FeatureCard feature={FEATURES[2]} delay={140} />
-          </div>
+        <div className="mt-12 grid gap-5 lg:grid-cols-2">
+          <FeatureCard feature={FEATURES[0]} />
+          <FeatureCard feature={FEATURES[1]} delay={80} />
         </div>
-      </div>
-    </section>
-  )
-}
-
-function CtaPush() {
-  const { ref, inView } = useInView(0.14)
-
-  return (
-    <section className="px-6 py-10 md:px-10 md:py-14">
-      <div
-        ref={ref}
-        className={cn(
-          "relative min-h-[34rem] overflow-hidden rounded-[2.4rem] border border-white/10 transition-all duration-1000 md:min-h-[39rem]",
-          inView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12",
-        )}
-      >
-        <div className="absolute inset-0">
-          <ParallaxMedia
-            src={IMG.ctaPush}
-            alt="Professional engineer looking across a mapped supply network"
-            speed={0.1}
-            sizes="100vw"
-            className="h-full"
-          />
-        </div>
-
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(4,9,13,0.1)_0%,_rgba(4,9,13,0.26)_32%,_rgba(4,9,13,0.92)_100%)]" />
-        <div className="absolute right-6 top-6 hidden flex-wrap gap-2 md:flex">
-          {["Supplier comparison", "Transport tradeoffs", "Open climate data"].map(
-            (item) => (
-              <span
-                key={item}
-                className="rounded-full border border-white/12 bg-black/26 px-3 py-1 text-[0.66rem] uppercase tracking-[0.22em] text-white/50 backdrop-blur-xl"
-              >
-                {item}
-              </span>
-            ),
-          )}
-        </div>
-
-        <div className="relative z-10 flex h-full flex-col justify-end p-8 md:p-12 lg:p-16">
-          <Eyebrow className="text-white/44">Explore GreenChain</Eyebrow>
-          <h2 className="landing-display mt-5 max-w-3xl text-4xl leading-[0.92] tracking-[-0.055em] text-white md:text-6xl">
-            Explore the supply chain graph and the globe side by side.
-          </h2>
-          <p className="mt-5 max-w-xl text-base leading-relaxed text-white/62">
-            Move from manufacturer relationships to geographic context without
-            losing sight of the environmental comparison.
-          </p>
-
-          <div className="mt-8">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/10 px-7 py-3.5 text-sm text-white backdrop-blur-xl transition-all duration-300 hover:border-white/28 hover:bg-white/18"
-            >
-              Open Platform
-              <span aria-hidden>→</span>
-            </Link>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function EditorialBlock() {
-  return (
-    <section id="about" className="px-6 py-24 md:px-10 md:py-32">
-      <div className="mx-auto grid max-w-screen-xl gap-6 xl:grid-cols-[0.94fr_1.06fr]">
-        <Reveal className="landing-panel rounded-[2rem] p-8 md:p-10">
-          <Eyebrow className="text-primary/82">Why This Matters</Eyebrow>
-          <h2 className="landing-display mt-4 text-4xl leading-[0.94] tracking-[-0.05em] text-white md:text-5xl">
-            Procurement choices have climate consequences, but the data is hard
-            to compare quickly.
-          </h2>
-          <p className="mt-6 text-base leading-relaxed text-white/62 md:text-lg">
-            Existing ESG tools are expensive, slow to onboard, and usually
-            aimed at compliance teams. GreenChain is built around a simpler
-            question: which sourcing option looks better for the planet?
-          </p>
-          <p className="mt-4 text-base leading-relaxed text-white/62 md:text-lg">
-            It is not trying to replace full carbon accounting. It is trying to
-            help a user compare countries, shipping modes, and basic supplier
-            signals without stitching five data sources together by hand.
-          </p>
-
-          <Link
-            href="/dashboard"
-            className="mt-8 inline-flex items-center gap-2 text-sm text-white/72 transition-colors hover:text-white"
-          >
-            Open Platform
-            <span aria-hidden>→</span>
-          </Link>
-        </Reveal>
-
-        <Reveal
-          delay={120}
-          className="landing-card-frame h-[28rem] rounded-[2rem] md:h-[36rem]"
-        >
-          <ParallaxMedia
-            src={IMG.team}
-            alt="GreenChain team"
-            speed={0.11}
-            sizes="(min-width: 1280px) 52vw, 100vw"
-            className="h-full"
-          />
-        </Reveal>
       </div>
     </section>
   )
@@ -1139,7 +851,7 @@ function EditorialBlock() {
 
 function Footer() {
   return (
-    <footer className="px-6 pb-12 pt-4 md:px-10">
+    <footer id="about" className="px-6 pb-12 pt-4 md:px-10">
       <div className="mx-auto flex max-w-screen-xl flex-col gap-8 border-t border-white/8 pt-8 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.3em] text-white/42">
@@ -1176,13 +888,8 @@ export default function LandingPage() {
   return (
     <main className="landing-page min-h-svh overflow-x-hidden text-foreground">
       <Hero />
-      <Ticker />
       <Manifesto />
-      <ScrollBand />
-      <StackingCards />
       <CapabilityGrid />
-      <CtaPush />
-      <EditorialBlock />
       <Footer />
     </main>
   )
