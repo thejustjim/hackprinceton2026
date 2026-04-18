@@ -196,8 +196,8 @@ function ConnectionEdge({ sourceNode, targetNode, selected, hovered }: EdgeProps
         <path
           d={path}
           fill="none"
-          stroke={selected ? "rgba(139,92,246,0.35)" : "rgba(255,255,255,0.08)"}
-          strokeWidth={selected ? 8 : 5}
+          stroke={selected ? "rgba(233,224,255,0.34)" : "rgba(226,220,235,0.16)"}
+          strokeWidth={selected ? 9 : 6}
           style={{ filter: selected ? "blur(6px)" : "blur(3px)" }}
         />
       )}
@@ -205,8 +205,8 @@ function ConnectionEdge({ sourceNode, targetNode, selected, hovered }: EdgeProps
       <path
         d={path}
         fill="none"
-        stroke={selected ? "#8b5cf6" : hovered ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.07)"}
-        strokeWidth={selected ? 1.5 : 1}
+        stroke={selected ? "#F1E9FF" : hovered ? "rgba(228,219,250,0.88)" : "rgba(214,207,224,0.68)"}
+        strokeWidth={selected ? 2.6 : hovered ? 2.1 : 1.8}
         markerEnd={`url(#${markerId})`}
         style={{ transition: "stroke 0.2s, stroke-width 0.2s" }}
       />
@@ -215,8 +215,8 @@ function ConnectionEdge({ sourceNode, targetNode, selected, hovered }: EdgeProps
         <path
           d={path}
           fill="none"
-          stroke="rgba(167,139,250,0.7)"
-          strokeWidth={1.5}
+          stroke="rgba(255,250,255,0.94)"
+          strokeWidth={1.8}
           strokeDasharray="5 14"
           className="edge-flow"
         />
@@ -443,25 +443,41 @@ export function SupplyChainGraph() {
         .panel-slide-in { animation: panel-slide-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
       `}</style>
 
-      {/* Dot grid */}
+      {/* Grid */}
       <div className="absolute inset-0 pointer-events-none">
         <svg width="100%" height="100%">
           <pattern
-            id="gc-dots"
-            x={transform.x % (20 * transform.scale)}
-            y={transform.y % (20 * transform.scale)}
-            width={20 * transform.scale}
-            height={20 * transform.scale}
+            id="gc-grid-minor"
+            x={transform.x % (26 * transform.scale)}
+            y={transform.y % (26 * transform.scale)}
+            width={26 * transform.scale}
+            height={26 * transform.scale}
             patternUnits="userSpaceOnUse"
           >
-            <circle
-              cx={transform.scale}
-              cy={transform.scale}
-              r={Math.max(0.5, transform.scale * 0.6)}
-              fill="rgba(255,255,255,0.04)"
+            <path
+              d={`M ${26 * transform.scale} 0 L 0 0 0 ${26 * transform.scale}`}
+              fill="none"
+              stroke="rgba(226,223,218,0.12)"
+              strokeWidth="1"
             />
           </pattern>
-          <rect width="100%" height="100%" fill="url(#gc-dots)" />
+          <pattern
+            id="gc-grid-major"
+            x={transform.x % (104 * transform.scale)}
+            y={transform.y % (104 * transform.scale)}
+            width={104 * transform.scale}
+            height={104 * transform.scale}
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d={`M ${104 * transform.scale} 0 L 0 0 0 ${104 * transform.scale}`}
+              fill="none"
+              stroke="rgba(246,244,240,0.18)"
+              strokeWidth="1"
+            />
+          </pattern>
+          <rect width="100%" height="100%" fill="url(#gc-grid-minor)" />
+          <rect width="100%" height="100%" fill="url(#gc-grid-major)" />
         </svg>
       </div>
 
@@ -500,13 +516,13 @@ export function SupplyChainGraph() {
           <svg className="absolute overflow-visible pointer-events-none" style={{ zIndex: 1 }}>
             <defs>
               <marker id="arrow-def" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(255,255,255,0.07)" />
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(214,207,224,0.7)" />
               </marker>
               <marker id="arrow-hov" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(255,255,255,0.30)" />
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="rgba(228,219,250,0.9)" />
               </marker>
               <marker id="arrow-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 2 L 10 5 L 0 8 z" fill="#8b5cf6" />
+                <path d="M 0 2 L 10 5 L 0 8 z" fill="#F1E9FF" />
               </marker>
             </defs>
 
