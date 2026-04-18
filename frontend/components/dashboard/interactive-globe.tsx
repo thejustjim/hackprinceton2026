@@ -163,9 +163,7 @@ const DEFAULT_ROTATION: RotationState = {
 const GLOBE_SURFACE_THEME = {
   atmosphereHalo: "rgba(218,240,232,0.1)",
   atmosphereRim: "rgba(222,243,236,0.16)",
-  atmosphereStrokeEnd: "rgba(255,255,255,0.02)",
-  atmosphereStrokeMid: "rgba(113,159,144,0.1)",
-  atmosphereStrokeStart: "rgba(226,244,237,0.2)",
+  atmosphereStroke: "rgba(216,236,228,0.12)",
   backGrid: "rgba(255,255,255,0.04)",
   countryBack: "rgba(240,246,243,0.045)",
   countryFront: "rgba(238,245,241,0.26)",
@@ -182,9 +180,7 @@ const GLOBE_SURFACE_THEME = {
   orbitStroke: "rgba(148,183,171,0.16)",
   productActiveStroke: "rgba(121,194,168,0.38)",
   productStroke: "rgba(220,236,228,0.12)",
-  rimEnd: "rgba(222,240,233,0.08)",
-  rimMid: "rgba(112,154,140,0.14)",
-  rimStart: "rgba(232,244,239,0.42)",
+  rimStroke: "rgba(228,242,236,0.18)",
   secondaryGrid: "rgba(255,255,255,0.052)",
   shadowFill: "rgba(4,8,10,0.32)",
   surfaceEdge: "rgba(255,255,255,0)",
@@ -1456,7 +1452,10 @@ export function InteractiveGlobe({
       }
     >()
 
-    const registerCaptionRoute = (route: RouteModel | undefined, priority: number) => {
+    const registerCaptionRoute = (
+      route: RouteModel | undefined,
+      priority: number
+    ) => {
       if (!route) {
         return
       }
@@ -1752,62 +1751,28 @@ export function InteractiveGlobe({
           <clipPath id={clipPathId}>
             <circle cx={GLOBE_CENTER} cy={GLOBE_CENTER} r={GLOBE_RADIUS} />
           </clipPath>
-          <radialGradient id={`${clipPathId}-surface`} cx="40%" cy="34%">
-            <stop
-              offset="0%"
-              stopColor={GLOBE_SURFACE_THEME.surfaceHighlight}
-            />
-            <stop offset="28%" stopColor={GLOBE_SURFACE_THEME.surfaceMid} />
-            <stop offset="68%" stopColor={GLOBE_SURFACE_THEME.surfaceEdge} />
-            <stop offset="100%" stopColor={GLOBE_SURFACE_THEME.surfaceEdge} />
-          </radialGradient>
-          <radialGradient id={`${clipPathId}-core-shadow`} cx="66%" cy="70%">
-            <stop offset="0%" stopColor={GLOBE_SURFACE_THEME.coreShadowWeak} />
-            <stop offset="48%" stopColor="rgba(0,0,0,0.12)" />
-            <stop
-              offset="100%"
-              stopColor={GLOBE_SURFACE_THEME.coreShadowStrong}
-            />
-          </radialGradient>
-          <linearGradient
-            id={`${clipPathId}-rim`}
-            x1="18%"
-            y1="14%"
-            x2="86%"
-            y2="86%"
+          <radialGradient
+            id={`${clipPathId}-surface`}
+            cx="50"
+            cy="50"
+            r="68"
+            fx="50"
+            fy="50"
+            gradientUnits="userSpaceOnUse"
           >
-            <stop offset="0%" stopColor={GLOBE_SURFACE_THEME.rimStart} />
-            <stop offset="28%" stopColor={GLOBE_SURFACE_THEME.rimMid} />
-            <stop offset="70%" stopColor={GLOBE_SURFACE_THEME.rimEnd} />
-            <stop offset="100%" stopColor={GLOBE_SURFACE_THEME.rimEnd} />
-          </linearGradient>
-          <radialGradient id={`${clipPathId}-atmosphere`} cx="42%" cy="36%">
+            <stop offset="0%" stopColor="rgba(242,249,246,0.14)" />
+            <stop offset="22%" stopColor="rgba(180,212,199,0.075)" />
+            <stop offset="56%" stopColor="rgba(72,100,92,0.05)" />
+            <stop offset="86%" stopColor="rgba(10,15,18,0.22)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.3)" />
+          </radialGradient>
+          <radialGradient id={`${clipPathId}-atmosphere`} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="rgba(255,255,255,0)" />
             <stop offset="86%" stopColor="rgba(255,255,255,0)" />
             <stop offset="93%" stopColor={GLOBE_SURFACE_THEME.atmosphereHalo} />
             <stop offset="98%" stopColor={GLOBE_SURFACE_THEME.atmosphereRim} />
             <stop offset="100%" stopColor="rgba(255,255,255,0)" />
           </radialGradient>
-          <linearGradient
-            id={`${clipPathId}-atmosphere-stroke`}
-            x1="16%"
-            y1="18%"
-            x2="84%"
-            y2="82%"
-          >
-            <stop
-              offset="0%"
-              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeStart}
-            />
-            <stop
-              offset="34%"
-              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeMid}
-            />
-            <stop
-              offset="100%"
-              stopColor={GLOBE_SURFACE_THEME.atmosphereStrokeEnd}
-            />
-          </linearGradient>
         </defs>
 
         <path
@@ -1829,7 +1794,7 @@ export function InteractiveGlobe({
           cy={GLOBE_CENTER}
           r={GLOBE_RADIUS + 0.34}
           fill="none"
-          stroke={`url(#${clipPathId}-atmosphere-stroke)`}
+          stroke={GLOBE_SURFACE_THEME.atmosphereStroke}
           strokeWidth="0.34"
           opacity={0.72}
         />
@@ -1838,23 +1803,15 @@ export function InteractiveGlobe({
           cx={GLOBE_CENTER}
           cy={GLOBE_CENTER}
           r={GLOBE_RADIUS}
-          fill="rgba(255,255,255,0.01)"
-          stroke={`url(#${clipPathId}-rim)`}
-          strokeWidth="0.72"
-        />
-        <circle
-          cx={GLOBE_CENTER}
-          cy={GLOBE_CENTER}
-          r={GLOBE_RADIUS - 0.8}
           fill={`url(#${clipPathId}-surface)`}
-          opacity={0.88}
         />
         <circle
           cx={GLOBE_CENTER}
           cy={GLOBE_CENTER}
-          r={GLOBE_RADIUS - 1.2}
-          fill={`url(#${clipPathId}-core-shadow)`}
-          opacity={0.98}
+          r={GLOBE_RADIUS}
+          fill="none"
+          stroke={GLOBE_SURFACE_THEME.rimStroke}
+          strokeWidth="0.72"
         />
 
         <g clipPath={`url(#${clipPathId})`}>

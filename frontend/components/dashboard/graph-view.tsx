@@ -6,6 +6,7 @@ import {
 } from "@/lib/supply-chain-scenario"
 import { cn } from "@/lib/utils"
 import { SupplyChainGraph } from "@/components/dashboard/supply-chain-graph"
+import { PromptBar } from "@/components/dashboard/prompt-bar"
 
 interface GraphViewProps {
   bestEcoManufacturerByComponent: Record<string, string>
@@ -78,6 +79,12 @@ export function GraphView({
           scenario={scenario}
           selectedNodeId={selectedNodeId}
         />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3 sm:p-4">
+          <PromptBar
+            className="pointer-events-auto mx-auto w-full max-w-4xl"
+            prompt={`Trace the cleanest fallback path through ${scenario.title} and explain which manufacturer swap cuts the most emissions without creating a new bottleneck.`}
+          />
+        </div>
       </div>
     </section>
   )

@@ -1,41 +1,47 @@
 "use client"
 
+import { type ComponentProps, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { AiGenerativeIcon, Message02Icon } from "@hugeicons/core-free-icons"
+import { Message02Icon } from "@hugeicons/core-free-icons"
 
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-  InputGroupText,
-} from "@/components/ui/input-group"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
-export function PromptBar() {
+interface PromptBarProps extends ComponentProps<"div"> {
+  prompt?: string
+}
+
+export function PromptBar({
+  className,
+  prompt = "Ask the graph what breaks first if a node drops, which route carries the highest carbon risk, or where to reroute for the cleanest recovery.",
+  ...props
+}: PromptBarProps) {
+  const [value, setValue] = useState(prompt)
+
   return (
-    <div className="rounded-xl border border-border/70 bg-background/92 p-2">
-      <InputGroup className="h-11 rounded-lg border-border/70 bg-transparent">
-        <InputGroupAddon>
-          <InputGroupText>
-            <HugeiconsIcon icon={AiGenerativeIcon} strokeWidth={2} />
-            Prompt
-          </InputGroupText>
-        </InputGroupAddon>
-        <InputGroupInput
-          readOnly
-          value="Explain upstream risk propagation if Leipzig Pack Forge loses another coating line."
+    <div
+      className={cn(
+        "rounded-2xl border border-white/8 bg-black/24 p-2 backdrop-blur-sm",
+        className
+      )}
+      {...props}
+    >
+      <div className="flex items-center gap-2">
+        <Input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          className="h-11 flex-1 rounded-xl border-white/8 bg-black/22 shadow-none"
         />
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton variant="default" size="sm">
-            <HugeiconsIcon
-              icon={Message02Icon}
-              strokeWidth={2}
-              data-icon="inline-start"
-            />
-            Run
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
+        <Button size="default" className="shrink-0 rounded-xl shadow-none">
+          <HugeiconsIcon
+            icon={Message02Icon}
+            strokeWidth={2}
+            data-icon="inline-start"
+          />
+          Submit
+        </Button>
+      </div>
     </div>
   )
 }
