@@ -8,6 +8,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { Button } from "@/components/ui/button"
+import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
 import { cn } from "@/lib/utils"
 import {
   type SupplyChainEntity,
@@ -64,45 +65,18 @@ export function GlobeView({
       </div>
 
       <div className="flex flex-1 flex-col gap-4 px-4 py-4">
-        <div className="relative flex min-h-[22rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-[radial-gradient(circle_at_center,rgba(122,84,255,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))]">
-          <div className="absolute inset-6 rounded-full border border-border/50" />
-          <div className="absolute inset-14 rounded-full border border-border/35" />
-          <div className="relative aspect-square w-full max-w-[20rem] rounded-full border border-border/60 bg-[radial-gradient(circle_at_50%_45%,rgba(151,118,255,0.2),transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.01))] shadow-[inset_0_0_60px_rgba(125,85,255,0.08)]">
-            <svg
-              className="absolute inset-0 size-full"
-              viewBox="0 0 100 100"
-              aria-hidden="true"
-            >
-              {data.locations.map((location) => (
-                <circle
-                  key={location.id}
-                  cx={location.coordinates.x}
-                  cy={location.coordinates.y}
-                  r={location.id === selectedLocation?.id ? "2.4" : "1.7"}
-                  fill={
-                    location.id === selectedLocation?.id
-                      ? "var(--primary)"
-                      : "color-mix(in oklab, var(--foreground) 65%, transparent)"
-                  }
-                />
-              ))}
-              <path
-                d="M 20 62 C 38 40, 55 26, 74 34"
-                fill="none"
-                stroke="color-mix(in oklab, var(--primary) 80%, white)"
-                strokeWidth="1"
-                strokeDasharray="3 2"
-              />
-              <path
-                d="M 28 31 C 48 28, 70 29, 80 32"
-                fill="none"
-                stroke="color-mix(in oklab, var(--foreground) 34%, transparent)"
-                strokeWidth="0.9"
-              />
-            </svg>
-          </div>
+        <div className="relative flex min-h-[24rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] md:min-h-[27rem]">
+          <div className="absolute inset-6 rounded-full border border-white/12" />
+          <div className="absolute inset-14 rounded-full border border-white/10" />
+          <InteractiveGlobe
+            className="relative z-10"
+            entities={data.entities}
+            links={data.links}
+            locations={data.locations}
+            selectedLocationId={selectedLocation?.id}
+          />
 
-          <div className="absolute top-4 left-4 rounded-lg border border-border/70 bg-background/88 px-3 py-2">
+          <div className="absolute top-4 left-4 rounded-lg border border-white/12 bg-background/84 px-3 py-2 backdrop-blur-sm">
             <p className="text-xs text-muted-foreground">Focused location</p>
             <p className="text-sm font-medium text-foreground">
               {selectedLocation?.name}
@@ -160,7 +134,8 @@ export function GlobeView({
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <HugeiconsIcon icon={Route03Icon} strokeWidth={2} />
-          Routes are placeholder geometry for now.
+          Drag to rotate. Continents, countries, and routes trace the visible
+          hemisphere.
         </div>
       </div>
     </section>
