@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -11,7 +12,7 @@ import {
 } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import * as THREE from "three"
+import { useRouter } from "next/navigation"
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { cn } from "@/lib/utils"
@@ -35,12 +36,6 @@ const IMG = {
   team: "/landing/Candid_editorial_photograph_of_a_diverse_professio-1776490341439.png",
 } as const
 
-type Metric = {
-  value: number
-  suffix: string
-  label: string
-}
-
 type Feature = {
   img: string
   label: string
@@ -49,21 +44,34 @@ type Feature = {
   bullets: string[]
 }
 
+type DashboardLaunchStatus = {
+  detail: string
+  title: string
+}
+
+type DashboardLaunchState = {
+  progress: number
+  status: DashboardLaunchStatus
+}
+
 const HERO_SIGNALS = [
   {
     label: "Start with demand",
     value: "Product and destination",
-    detail: "Define what you need to source, how much you need, and where it needs to arrive.",
+    detail:
+      "Define what you need to source, how much you need, and where it needs to arrive.",
   },
   {
     label: "Compare options",
     value: "Country and transport",
-    detail: "Test manufacturing countries side by side and see how shipping mode changes the result.",
+    detail:
+      "Test manufacturing countries side by side and see how shipping mode changes the result.",
   },
   {
     label: "Make a decision",
     value: "Ranking and recommendation",
-    detail: "Review the tradeoffs quickly and export a short memo with the strongest option.",
+    detail:
+      "Review the tradeoffs quickly and export a short memo with the strongest option.",
   },
 ] as const
 
@@ -72,8 +80,7 @@ const FEATURES: Feature[] = [
     img: IMG.warehouse,
     label: "Prototype Flow",
     title: "Compare sourcing scenarios quickly.",
-    body:
-      "The brief is intentionally focused: compare a few sourcing options quickly, show what drives the footprint, and make the transport tradeoff obvious.",
+    body: "The brief is intentionally focused: compare a few sourcing options quickly, show what drives the footprint, and make the transport tradeoff obvious.",
     bullets: [
       "Product, quantity, and destination input",
       "Country and transport mode comparison",
@@ -84,8 +91,7 @@ const FEATURES: Feature[] = [
     img: IMG.engineers,
     label: "Supply Chain Graph",
     title: "See manufacturers and links as a live network.",
-    body:
-      "The graph view turns suppliers, facilities, and routes into a structure you can inspect instead of a list you have to mentally piece together.",
+    body: "The graph view turns suppliers, facilities, and routes into a structure you can inspect instead of a list you have to mentally piece together.",
     bullets: [
       "Interactive nodes and connections",
       "Status-focused details",
@@ -96,8 +102,7 @@ const FEATURES: Feature[] = [
     img: IMG.globe,
     label: "Geographic View",
     title: "Match the network with real-world location context.",
-    body:
-      "The geographic view makes transport tradeoffs easier to read by putting facilities and routes into a single global frame.",
+    body: "The geographic view makes transport tradeoffs easier to read by putting facilities and routes into a single global frame.",
     bullets: [
       "Location-driven exploration",
       "Graph + globe side by side",
@@ -105,6 +110,30 @@ const FEATURES: Feature[] = [
     ],
   },
 ]
+
+const DASHBOARD_LAUNCH_STATUSES = {
+  entering: {
+    detail: "Opening the next-step chooser for CSV intake or the demo path.",
+    title: "Opening launch options",
+  },
+  priming: {
+    detail: "Preparing the intake surface and demo handoff.",
+    title: "Priming launch flow",
+  },
+  shell: {
+    detail: "Loading the chooser shell before the upload tools appear.",
+    title: "Loading chooser shell",
+  },
+  sync: {
+    detail: "Finalizing upload intake and demo entry states.",
+    title: "Syncing launch state",
+  },
+} as const
+
+const DEFAULT_DASHBOARD_LAUNCH_STATE: DashboardLaunchState = {
+  progress: 0,
+  status: DASHBOARD_LAUNCH_STATUSES.priming,
+}
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
@@ -121,7 +150,7 @@ function useInView(threshold = 0.18) {
       ([entry]) => {
         if (entry.isIntersecting) setInView(true)
       },
-      { threshold },
+      { threshold }
     )
 
     observer.observe(element)
@@ -154,15 +183,7 @@ function usePrefersReducedMotionSnapshot() {
       return () => mediaQuery.removeEventListener("change", onStoreChange)
     },
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    () => false,
-  )
-}
-
-function useHydrated() {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
+    () => false
   )
 }
 
@@ -170,147 +191,121 @@ function easeOutQuart(x: number) {
   return 1 - Math.pow(1 - x, 4)
 }
 
-function LandingIntro({
+function DashboardLaunchOverlay({
   active,
-  mode,
-  onDone,
+  progress,
+  reducedMotion,
+  status,
 }: {
   active: boolean
-  mode: "full" | "instant"
-  onDone: () => void
+  progress: number
+  reducedMotion: boolean
+  status: DashboardLaunchStatus
 }) {
-  const onDoneRef = useRef(onDone)
-  onDoneRef.current = onDone
-
-  const [count, setCount] = useState(0)
-  const [statusIndex, setStatusIndex] = useState(0)
-  const [fadeCounter, setFadeCounter] = useState(false)
-  const [wipePanels, setWipePanels] = useState(false)
-  const [hidden, setHidden] = useState(false)
-
-  useEffect(() => {
-    if (!active) return
-    if (mode !== "instant") return
-
-    setCount(100)
-    setStatusIndex(4)
-    setFadeCounter(true)
-
-    const timeouts: number[] = []
-    timeouts.push(
-      window.setTimeout(() => {
-        setWipePanels(true)
-        timeouts.push(
-          window.setTimeout(() => {
-            setHidden(true)
-            onDoneRef.current()
-          }, 1100),
-        )
-      }, 120),
-    )
-
-    return () => {
-      for (const id of timeouts) window.clearTimeout(id)
-    }
-  }, [active, mode])
-
-  const statuses = useMemo(
-    () => [
-      "Initializing Core…",
-      "Loading High‑Res Assets…",
-      "Establishing Uplink…",
-      "Preparing Environment…",
-      "Systems Ready",
-    ],
-    [],
-  )
-
+  const routeGradientId = useId().replace(/:/g, "")
   const ring = useMemo(() => {
     const radius = 120
     const circumference = radius * 2 * Math.PI
     return { radius, circumference }
   }, [])
-
-  useEffect(() => {
-    if (!active) return
-    if (mode !== "full") return
-
-    let raf = 0
-    const timeouts: number[] = []
-    const start = performance.now()
-    const DURATION = 2200
-
-    const tick = (t: number) => {
-      const progress = clamp((t - start) / DURATION, 0, 1)
-      const eased = easeOutQuart(progress)
-      const pct = Math.floor(eased * 100)
-
-      setCount(pct)
-      setStatusIndex(
-        Math.min(Math.floor(eased * statuses.length), statuses.length - 1),
-      )
-
-      if (progress < 1) {
-        raf = requestAnimationFrame(tick)
-        return
-      }
-
-      // brief pause at 100% before the wipe
-      timeouts.push(
-        window.setTimeout(() => {
-          setFadeCounter(true)
-          timeouts.push(
-            window.setTimeout(() => {
-              setWipePanels(true)
-              timeouts.push(
-                window.setTimeout(() => {
-                  setHidden(true)
-                  onDoneRef.current()
-                }, 1100),
-              )
-            }, 420),
-          )
-        }, 420),
-      )
-    }
-
-    raf = requestAnimationFrame(tick)
-
-    return () => {
-      cancelAnimationFrame(raf)
-      for (const id of timeouts) window.clearTimeout(id)
-    }
-  }, [active, mode, statuses.length])
-
   const dashOffset = useMemo(() => {
-    const eased = easeOutQuart(count / 100)
+    const eased = easeOutQuart(progress / 100)
     return ring.circumference - eased * ring.circumference
-  }, [count, ring.circumference])
+  }, [progress, ring.circumference])
 
-  if (!active || hidden) return null
+  if (!active) return null
 
   return (
     <div
       aria-hidden
       className={cn(
-        "landing-intro fixed inset-0 z-[100] select-none",
-        wipePanels && "is-revealing",
+        "landing-launch fixed inset-0 z-[100] grid place-items-center overflow-hidden px-6",
+        reducedMotion && "is-reduced-motion"
       )}
     >
-      <div
-        className={cn("landing-intro__content", fadeCounter && "is-hidden")}
-      >
-        <div className="absolute left-7 top-7 text-[11px] font-medium uppercase tracking-[0.28em] text-white/40 md:left-10 md:top-9">
-          GreenChain
-        </div>
+      <div className="landing-launch__backdrop absolute inset-0" />
+      <div className="landing-launch__grid absolute inset-0" />
+      <div className="landing-launch__glow absolute inset-0" />
 
-        <div className="relative mb-12 mt-8 flex items-center justify-center">
-          <svg
-            className="absolute h-64 w-64 md:h-80 md:w-80"
-            viewBox="0 0 256 256"
+      <svg
+        className="landing-launch__routes pointer-events-none absolute inset-0 h-full w-full"
+        viewBox="0 0 1200 1200"
+        fill="none"
+      >
+        <defs>
+          <linearGradient
+            id={routeGradientId}
+            x1="180"
+            x2="1010"
+            y1="940"
+            y2="180"
+          >
+            <stop offset="0" stopColor="rgba(126,255,212,0)" />
+            <stop offset="0.22" stopColor="rgba(126,255,212,0.86)" />
+            <stop offset="0.58" stopColor="rgba(120,220,255,0.76)" />
+            <stop offset="1" stopColor="rgba(120,220,255,0)" />
+          </linearGradient>
+        </defs>
+
+        <path
+          className="landing-launch__route landing-launch__route--1"
+          d="M120 940C260 770 380 610 546 616C710 624 780 454 1086 256"
+          stroke={`url(#${routeGradientId})`}
+          strokeLinecap="round"
+          strokeWidth="2.5"
+        />
+        <path
+          className="landing-launch__route landing-launch__route--2"
+          d="M182 1054C346 864 514 778 650 690C818 580 888 438 1012 310"
+          stroke={`url(#${routeGradientId})`}
+          strokeLinecap="round"
+          strokeWidth="1.8"
+        />
+        <path
+          className="landing-launch__route landing-launch__route--3"
+          d="M208 250C388 308 468 430 578 470C694 512 824 454 1000 542"
+          stroke={`url(#${routeGradientId})`}
+          strokeLinecap="round"
+          strokeWidth="1.5"
+        />
+
+        {[
+          { cx: 214, cy: 1030, delay: "0ms" },
+          { cx: 546, cy: 616, delay: "280ms" },
+          { cx: 836, cy: 438, delay: "460ms" },
+          { cx: 1008, cy: 310, delay: "640ms" },
+        ].map((node) => (
+          <g
+            key={`${node.cx}-${node.cy}`}
+            className="landing-launch__node"
+            style={{ animationDelay: node.delay }}
           >
             <circle
-              className="text-white/10"
+              cx={node.cx}
+              cy={node.cy}
+              fill="rgba(124,255,214,0.18)"
+              r="28"
+            />
+            <circle
+              cx={node.cx}
+              cy={node.cy}
+              fill="rgba(124,255,214,0.42)"
+              r="10"
+            />
+            <circle cx={node.cx} cy={node.cy} fill="#bafde6" r="4" />
+          </g>
+        ))}
+      </svg>
+
+      <div className="landing-launch__content relative z-10 mx-auto flex w-full max-w-md flex-col items-center text-center">
+        <div className="landing-launch__badge rounded-full border border-white/12 bg-white/6 px-4 py-2 backdrop-blur-xl">
+          <GreenChainLogo variant="onDark" className="h-6 w-auto opacity-90" />
+        </div>
+
+        <div className="relative mt-8 flex h-72 w-72 items-center justify-center md:h-80 md:w-80">
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 256 256">
+            <circle
+              className="text-white/8"
               strokeWidth="1.5"
               stroke="currentColor"
               fill="transparent"
@@ -319,8 +314,8 @@ function LandingIntro({
               cy="128"
             />
             <circle
-              className="landing-intro__ring text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.28)]"
-              strokeWidth="2"
+              className="landing-launch__ring text-primary/90 drop-shadow-[0_0_20px_rgba(126,255,212,0.22)]"
+              strokeWidth="2.25"
               stroke="currentColor"
               fill="transparent"
               r={ring.radius}
@@ -334,46 +329,57 @@ function LandingIntro({
             />
           </svg>
 
-          <div className="flex items-baseline gap-1">
-            <span className="text-6xl font-light tracking-[-0.06em] text-white md:text-8xl">
-              {count}
+          <div className="absolute inset-10 rounded-full border border-white/8 bg-white/[0.02] backdrop-blur-2xl" />
+          <div className="absolute inset-[4.35rem] rounded-full bg-[radial-gradient(circle,_rgba(126,255,212,0.12),_rgba(12,18,19,0.02)_48%,_transparent_72%)]" />
+
+          <div className="relative flex items-baseline gap-2">
+            <span className="text-7xl font-light tracking-[-0.08em] text-white md:text-8xl">
+              {progress}
             </span>
-            <span className="text-xl font-light text-white/40 md:text-3xl">
+            <span className="text-2xl font-light text-white/36 md:text-3xl">
               %
             </span>
           </div>
         </div>
 
-        <div className="h-6 text-xs font-medium uppercase tracking-[0.28em] text-white/45 md:text-sm">
-          {statuses[statusIndex]}
-        </div>
+        <p className="text-xs font-medium tracking-[0.34em] text-primary/72 uppercase">
+          Preparing next step
+        </p>
+        <h2 className="mt-4 text-3xl font-medium tracking-[-0.05em] text-white md:text-[2.15rem]">
+          {status.title}
+        </h2>
+        <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/56 md:text-[0.95rem]">
+          {status.detail}
+        </p>
       </div>
-
-      <div
-        className={cn(
-          "landing-intro__panel landing-intro__panel--1",
-          wipePanels && "is-hidden",
-        )}
-      />
-      <div
-        className={cn(
-          "landing-intro__panel landing-intro__panel--2",
-          wipePanels && "is-hidden",
-        )}
-      />
-      <div
-        className={cn(
-          "landing-intro__panel landing-intro__panel--3",
-          wipePanels && "is-hidden",
-        )}
-      />
-      <div
-        className={cn(
-          "landing-intro__panel landing-intro__panel--4",
-          wipePanels && "is-hidden",
-        )}
-      />
     </div>
+  )
+}
+
+function DashboardLaunchButton({
+  children,
+  className,
+  disabled = false,
+  onLaunch,
+}: {
+  children: React.ReactNode
+  className?: string
+  disabled?: boolean
+  onLaunch: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onLaunch}
+      disabled={disabled}
+      aria-disabled={disabled}
+      className={cn(
+        className,
+        "disabled:pointer-events-none disabled:cursor-progress disabled:opacity-70"
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -415,43 +421,6 @@ function Reveal({
   )
 }
 
-function WordReveal({
-  text,
-  className,
-  wordClass,
-  delay = 0,
-}: {
-  text: string
-  className?: string
-  wordClass?: string
-  delay?: number
-}) {
-  const { ref, inView } = useInView(0.15)
-
-  return (
-    <div ref={ref} className={cn("overflow-hidden", className)}>
-      <span>
-        {text.split(" ").map((word, index) => (
-          <span key={index} className="inline-block overflow-hidden">
-            <span
-              className={cn(
-                "inline-block mr-[0.24em] transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]",
-                wordClass,
-              )}
-              style={{
-                transform: inView ? "translateY(0%)" : "translateY(115%)",
-                transitionDelay: `${delay + index * 38}ms`,
-              }}
-            >
-              {word}
-            </span>
-          </span>
-        ))}
-      </span>
-    </div>
-  )
-}
-
 function LineReveal({
   lines,
   active,
@@ -468,7 +437,7 @@ function LineReveal({
   return (
     <div className={cn("space-y-1.5", className)}>
       {lines.map((line, index) => (
-        <div key={index} className="overflow-hidden pb-[0.34em] pr-[0.04em]">
+        <div key={index} className="overflow-hidden pr-[0.04em] pb-[0.34em]">
           <div
             className={cn(lineClass)}
             style={{
@@ -521,7 +490,7 @@ function ParallaxMedia({
     const progress = clamp(
       (viewportHeight - rect.top) / (viewportHeight + rect.height),
       0,
-      1,
+      1
     )
     const centered = progress * 2 - 1
     const translateY = clamp(centered * speed * -160, -72, 72)
@@ -550,7 +519,10 @@ function ParallaxMedia({
 
   return (
     <div ref={frameRef} className={cn("relative overflow-hidden", className)}>
-      <div ref={mediaRef} className="absolute inset-[-12%] will-change-transform">
+      <div
+        ref={mediaRef}
+        className="absolute inset-[-12%] will-change-transform"
+      >
         <Image
           src={src}
           alt={alt}
@@ -618,84 +590,44 @@ function HeroThreeField({ disabled }: { disabled: boolean }) {
     const canvas = canvasRef.current
     if (!container || !canvas) return
 
-    const scene = new THREE.Scene()
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120)
-    camera.position.set(0, 0.35, 6.2)
+    const context = canvas.getContext("2d")
+    if (!context) return
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      alpha: true,
-      antialias: true,
-      powerPreference: "high-performance",
-    })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8))
-    renderer.setClearColor(0x000000, 0)
+    const randomBetween = (min: number, max: number) =>
+      min + Math.random() * (max - min)
+    const lerp = (from: number, to: number, amount: number) =>
+      from + (to - from) * amount
 
-    const ambientLight = new THREE.AmbientLight(0xbff8dd, 0.36)
-    const keyLight = new THREE.PointLight(0x62f5ae, 2.1, 26, 1.5)
-    keyLight.position.set(2.4, 3.1, 6.5)
-    const rimLight = new THREE.PointLight(0x5fd0ff, 1.2, 25, 1.5)
-    rimLight.position.set(-4.2, -0.8, 5.4)
-    scene.add(ambientLight, keyLight, rimLight)
+    const orbiters = Array.from({ length: 16 }, (_, index) => ({
+      radiusX: randomBetween(110, 270),
+      radiusY: randomBetween(60, 185),
+      size: randomBetween(1.8, 4.8),
+      speed: randomBetween(0.12, 0.36) * (index % 2 === 0 ? 1 : -1),
+      phase: randomBetween(0, Math.PI * 2),
+      alpha: randomBetween(0.24, 0.58),
+      color:
+        index % 3 === 0
+          ? "148,255,209"
+          : index % 3 === 1
+            ? "110,214,255"
+            : "200,255,235",
+    }))
+    const dust = Array.from({ length: 180 }, () => ({
+      radiusX: randomBetween(130, 520),
+      radiusY: randomBetween(90, 310),
+      size: randomBetween(0.6, 2.2),
+      speed: randomBetween(0.03, 0.11),
+      phase: randomBetween(0, Math.PI * 2),
+      offset: randomBetween(-0.8, 0.8),
+      alpha: randomBetween(0.08, 0.22),
+    }))
 
-    const field = new THREE.Group()
-    scene.add(field)
-
-    const coreGeo = new THREE.IcosahedronGeometry(1.35, 2)
-    const coreMat = new THREE.MeshStandardMaterial({
-      color: 0x91ffd0,
-      emissive: 0x2b905f,
-      emissiveIntensity: 0.35,
-      roughness: 0.18,
-      metalness: 0.2,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.34,
-    })
-    const coreMesh = new THREE.Mesh(coreGeo, coreMat)
-    field.add(coreMesh)
-
-    const shellGeo = new THREE.TorusKnotGeometry(2.4, 0.08, 220, 28)
-    const shellMat = new THREE.MeshStandardMaterial({
-      color: 0xb8ffe2,
-      emissive: 0x2a9f71,
-      emissiveIntensity: 0.3,
-      roughness: 0.4,
-      metalness: 0.55,
-      transparent: true,
-      opacity: 0.27,
-    })
-    const shellMesh = new THREE.Mesh(shellGeo, shellMat)
-    shellMesh.rotation.x = 0.48
-    shellMesh.rotation.y = 0.22
-    field.add(shellMesh)
-
-    const particleCount = 1100
-    const particles = new Float32Array(particleCount * 3)
-    for (let i = 0; i < particleCount; i += 1) {
-      const radius = 3 + Math.random() * 6.7
-      const theta = Math.random() * Math.PI * 2
-      const phi = Math.acos(2 * Math.random() - 1)
-      particles[i * 3] = radius * Math.sin(phi) * Math.cos(theta)
-      particles[i * 3 + 1] = radius * Math.cos(phi) * 0.6
-      particles[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta)
-    }
-
-    const particleGeo = new THREE.BufferGeometry()
-    particleGeo.setAttribute("position", new THREE.BufferAttribute(particles, 3))
-    const particleMat = new THREE.PointsMaterial({
-      color: 0x94ffd1,
-      size: 0.038,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-    })
-    const pointCloud = new THREE.Points(particleGeo, particleMat)
-    scene.add(pointCloud)
-
-    const pointerTarget = new THREE.Vector2(0, 0)
-    const pointerCurrent = new THREE.Vector2(0, 0)
+    const pointerTarget = { x: 0, y: 0 }
+    const pointerCurrent = { x: 0, y: 0 }
+    let width = 1
+    let height = 1
+    let frame = 0
+    let start = performance.now()
 
     const onPointerMove = (event: PointerEvent) => {
       const rect = container.getBoundingClientRect()
@@ -704,14 +636,24 @@ function HeroThreeField({ disabled }: { disabled: boolean }) {
       pointerTarget.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1)
     }
 
-    const onPointerLeave = () => pointerTarget.set(0, 0)
+    const onPointerLeave = () => {
+      pointerTarget.x = 0
+      pointerTarget.y = 0
+    }
 
     const resize = () => {
-      const { width, height } = container.getBoundingClientRect()
-      if (!width || !height) return
-      renderer.setSize(width, height, false)
-      camera.aspect = width / height
-      camera.updateProjectionMatrix()
+      const rect = container.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+
+      width = rect.width
+      height = rect.height
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.8)
+      canvas.width = Math.round(width * dpr)
+      canvas.height = Math.round(height * dpr)
+      canvas.style.width = `${width}px`
+      canvas.style.height = `${height}px`
+      context.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
 
     resize()
@@ -719,43 +661,158 @@ function HeroThreeField({ disabled }: { disabled: boolean }) {
     container.addEventListener("pointermove", onPointerMove)
     container.addEventListener("pointerleave", onPointerLeave)
 
-    const clock = new THREE.Clock()
-    let frame = 0
+    const tick = (now: number) => {
+      const elapsed = (now - start) / 1000
+      pointerCurrent.x = lerp(pointerCurrent.x, pointerTarget.x, 0.075)
+      pointerCurrent.y = lerp(pointerCurrent.y, pointerTarget.y, 0.075)
 
-    const tick = () => {
-      const elapsed = clock.getElapsedTime()
-      pointerCurrent.lerp(pointerTarget, 0.075)
+      context.clearRect(0, 0, width, height)
 
-      field.rotation.y += 0.0015
-      field.rotation.x = Math.sin(elapsed * 0.3) * 0.08 + pointerCurrent.y * 0.18
-      field.rotation.z = Math.cos(elapsed * 0.2) * 0.03 + pointerCurrent.x * 0.12
-      field.position.x = pointerCurrent.x * 0.35
-      field.position.y = pointerCurrent.y * 0.22
+      const centerX = width * 0.5 + pointerCurrent.x * 28
+      const centerY = height * 0.38 - pointerCurrent.y * 18
+      const radius = Math.min(width, height) * 0.14
 
-      coreMesh.rotation.x += 0.0019
-      coreMesh.rotation.y += 0.0023
-      shellMesh.rotation.z += 0.0018
-      pointCloud.rotation.y -= 0.00042
-      pointCloud.rotation.x = Math.sin(elapsed * 0.14) * 0.05
+      const glow = context.createRadialGradient(
+        centerX,
+        centerY,
+        radius * 0.08,
+        centerX,
+        centerY,
+        radius * 4.2
+      )
+      glow.addColorStop(0, "rgba(145,255,208,0.24)")
+      glow.addColorStop(0.34, "rgba(86,231,173,0.10)")
+      glow.addColorStop(0.7, "rgba(85,170,255,0.06)")
+      glow.addColorStop(1, "rgba(0,0,0,0)")
+      context.fillStyle = glow
+      context.fillRect(0, 0, width, height)
 
-      renderer.render(scene, camera)
+      for (const mote of dust) {
+        const angle = mote.phase + elapsed * mote.speed
+        const x =
+          centerX +
+          Math.cos(angle) * mote.radiusX +
+          pointerCurrent.x * mote.radiusX * 0.05
+        const y =
+          centerY +
+          Math.sin(angle * 1.3 + mote.offset) * mote.radiusY +
+          pointerCurrent.y * mote.radiusY * 0.04
+
+        context.beginPath()
+        context.fillStyle = `rgba(148,255,209,${mote.alpha})`
+        context.arc(x, y, mote.size, 0, Math.PI * 2)
+        context.fill()
+      }
+
+      context.save()
+      context.translate(centerX, centerY)
+      context.rotate(elapsed * 0.12 + pointerCurrent.x * 0.18)
+      context.strokeStyle = "rgba(172,255,224,0.16)"
+      context.lineWidth = 1.2
+      context.beginPath()
+      context.ellipse(0, 0, radius * 1.85, radius * 1.18, 0.35, 0, Math.PI * 2)
+      context.stroke()
+
+      context.rotate(-elapsed * 0.2 + 0.7)
+      context.strokeStyle = "rgba(108,214,255,0.16)"
+      context.beginPath()
+      context.ellipse(0, 0, radius * 1.42, radius * 2.1, 0.2, 0, Math.PI * 2)
+      context.stroke()
+      context.restore()
+
+      const layers = [
+        {
+          scale: 1.1,
+          stroke: "rgba(184,255,226,0.22)",
+          rotation: elapsed * 0.42,
+        },
+        {
+          scale: 0.9,
+          stroke: "rgba(98,245,174,0.28)",
+          rotation: -elapsed * 0.58 + 0.5,
+        },
+        {
+          scale: 0.7,
+          stroke: "rgba(95,208,255,0.18)",
+          rotation: elapsed * 0.75 + 1.1,
+        },
+      ] as const
+
+      for (const layer of layers) {
+        context.save()
+        context.translate(centerX, centerY)
+        context.rotate(layer.rotation + pointerCurrent.x * 0.12)
+        context.beginPath()
+
+        for (let index = 0; index <= 10; index += 1) {
+          const angle = (index / 10) * Math.PI * 2
+          const wobble =
+            1 + Math.sin(angle * 3 + elapsed * 1.2 + layer.scale) * 0.14
+          const currentRadius = radius * layer.scale * wobble
+          const x = Math.cos(angle) * currentRadius
+          const y = Math.sin(angle) * currentRadius * 0.84
+
+          if (index === 0) context.moveTo(x, y)
+          else context.lineTo(x, y)
+        }
+
+        context.closePath()
+        context.strokeStyle = layer.stroke
+        context.lineWidth = 1
+        context.stroke()
+        context.restore()
+      }
+
+      for (const orbiter of orbiters) {
+        const angle = orbiter.phase + elapsed * orbiter.speed
+        const x =
+          centerX +
+          Math.cos(angle) * orbiter.radiusX +
+          pointerCurrent.x * orbiter.radiusX * 0.08
+        const y =
+          centerY +
+          Math.sin(angle * 1.2) * orbiter.radiusY +
+          pointerCurrent.y * orbiter.radiusY * 0.06
+
+        const bloom = context.createRadialGradient(
+          x,
+          y,
+          0,
+          x,
+          y,
+          orbiter.size * 4.8
+        )
+        bloom.addColorStop(0, `rgba(${orbiter.color},${orbiter.alpha})`)
+        bloom.addColorStop(
+          0.35,
+          `rgba(${orbiter.color},${orbiter.alpha * 0.45})`
+        )
+        bloom.addColorStop(1, `rgba(${orbiter.color},0)`)
+
+        context.fillStyle = bloom
+        context.beginPath()
+        context.arc(x, y, orbiter.size * 4.8, 0, Math.PI * 2)
+        context.fill()
+
+        context.fillStyle = `rgba(${orbiter.color},${Math.min(orbiter.alpha + 0.2, 0.9)})`
+        context.beginPath()
+        context.arc(x, y, orbiter.size, 0, Math.PI * 2)
+        context.fill()
+      }
+
       frame = requestAnimationFrame(tick)
     }
 
-    frame = requestAnimationFrame(tick)
+    frame = requestAnimationFrame((now) => {
+      start = now
+      tick(now)
+    })
 
     return () => {
       cancelAnimationFrame(frame)
       window.removeEventListener("resize", resize)
       container.removeEventListener("pointermove", onPointerMove)
       container.removeEventListener("pointerleave", onPointerLeave)
-      particleGeo.dispose()
-      particleMat.dispose()
-      coreGeo.dispose()
-      coreMat.dispose()
-      shellGeo.dispose()
-      shellMat.dispose()
-      renderer.dispose()
     }
   }, [disabled])
 
@@ -768,7 +825,7 @@ function HeroThreeField({ disabled }: { disabled: boolean }) {
         ref={canvasRef}
         className={cn(
           "h-full w-full transition-opacity duration-700 ease-out",
-          disabled ? "opacity-45" : "opacity-100",
+          disabled ? "opacity-45" : "opacity-100"
         )}
       />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_24%,_rgba(147,255,210,0.12),_transparent_42%),radial-gradient(circle_at_68%_24%,_rgba(126,190,255,0.08),_transparent_36%)]" />
@@ -776,7 +833,15 @@ function HeroThreeField({ disabled }: { disabled: boolean }) {
   )
 }
 
-function Hero({ introReady }: { introReady: boolean }) {
+function Hero({
+  introReady,
+  isLaunching,
+  onLaunchDashboard,
+}: {
+  introReady: boolean
+  isLaunching: boolean
+  onLaunchDashboard: () => void
+}) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const prefersReducedMotion = usePrefersReducedMotion()
   const [mounted, setMounted] = useState(false)
@@ -865,7 +930,7 @@ function Hero({ introReady }: { introReady: boolean }) {
           sizes="100vw"
           className={cn(
             "object-cover transition-transform duration-[2000ms] ease-[cubic-bezier(0.25,1,0.5,1)]",
-            introReady ? "scale-100" : "scale-[1.14]",
+            introReady ? "scale-100" : "scale-[1.14]"
           )}
         />
         <video
@@ -878,7 +943,7 @@ function Hero({ introReady }: { introReady: boolean }) {
           poster={IMG.heroBg}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-[1400ms]",
-            videoReady && !prefersReducedMotion ? "opacity-100" : "opacity-0",
+            videoReady && !prefersReducedMotion ? "opacity-100" : "opacity-0"
           )}
         >
           <source src={IMG.heroVid} type="video/mp4" />
@@ -890,7 +955,7 @@ function Hero({ introReady }: { introReady: boolean }) {
       <HeroThreeField disabled={prefersReducedMotion} />
       <div className="landing-grid absolute inset-0 -z-10 opacity-55" />
 
-      <div className="relative mx-auto flex min-h-[100svh] w-full max-w-screen-2xl flex-col px-6 pb-8 pt-6 md:px-10">
+      <div className="relative mx-auto flex min-h-[100svh] w-full max-w-screen-2xl flex-col px-6 pt-6 pb-8 md:px-10">
         <header className="flex items-center justify-between gap-4">
           <Link
             href="/"
@@ -916,22 +981,23 @@ function Hero({ introReady }: { introReady: boolean }) {
               </a>
             ))}
 
-            <Link
-              href="/dashboard"
+            <DashboardLaunchButton
+              onLaunch={onLaunchDashboard}
+              disabled={isLaunching}
               className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/8 px-5 py-2.5 text-sm text-white backdrop-blur-xl transition-all duration-300 hover:border-white/28 hover:bg-white/14"
             >
-              Enter Dashboard
+              Launch Platform
               <span aria-hidden>→</span>
-            </Link>
+            </DashboardLaunchButton>
           </nav>
         </header>
 
         <div className="flex min-h-[calc(100svh-5rem)] flex-1 flex-col justify-center gap-12 py-12">
-          <div className="max-w-4xl">
+          <div className="max-w-[80rem]">
             <LineReveal
               lines={heroLines}
               active={mounted}
-              className="max-w-5xl"
+              className="max-w-[80rem]"
               lineClass="landing-display text-[clamp(3.35rem,8vw,7.85rem)] leading-[0.96] tracking-[-0.055em] text-white"
               delay={120}
             />
@@ -944,14 +1010,18 @@ function Hero({ introReady }: { introReady: boolean }) {
               </p>
             </div>
 
-            <div {...fadeUp(680)} className="mt-10 flex flex-wrap items-center gap-4">
-              <Link
-                href="/dashboard"
+            <div
+              {...fadeUp(680)}
+              className="mt-10 flex flex-wrap items-center gap-4"
+            >
+              <DashboardLaunchButton
+                onLaunch={onLaunchDashboard}
+                disabled={isLaunching}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] transition-transform duration-300 hover:-translate-y-0.5"
               >
                 Open Platform
                 <span aria-hidden>→</span>
-              </Link>
+              </DashboardLaunchButton>
 
               <a
                 href="#features"
@@ -969,7 +1039,10 @@ function Hero({ introReady }: { introReady: boolean }) {
           className="grid gap-4 border-t border-white/10 pt-6 md:grid-cols-3"
         >
           {HERO_SIGNALS.map((item) => (
-            <div key={item.label} className="landing-panel rounded-[1.35rem] p-4">
+            <div
+              key={item.label}
+              className="landing-panel rounded-[1.35rem] p-4"
+            >
               <Eyebrow className="text-white/42">{item.label}</Eyebrow>
               <p className="mt-3 text-xl font-medium tracking-[-0.03em] text-white md:text-2xl">
                 {item.value}
@@ -995,9 +1068,7 @@ function FeatureCard({
   return (
     <Reveal delay={delay} className="h-full">
       <TiltCard className="landing-panel h-full overflow-hidden rounded-[1.8rem]">
-        <div
-          className="relative h-64 overflow-hidden border-b border-white/10 md:h-72"
-        >
+        <div className="relative h-64 overflow-hidden border-b border-white/10 md:h-72">
           <ParallaxMedia
             src={feature.img}
             alt={feature.title}
@@ -1031,7 +1102,13 @@ function FeatureCard({
   )
 }
 
-function FeaturesSection() {
+function FeaturesSection({
+  isLaunching,
+  onLaunchDashboard,
+}: {
+  isLaunching: boolean
+  onLaunchDashboard: () => void
+}) {
   return (
     <section id="features" className="px-6 py-24 md:px-10 md:py-32">
       <div className="mx-auto max-w-screen-xl">
@@ -1041,8 +1118,8 @@ function FeaturesSection() {
             A fast way to compare sourcing options.
           </h2>
           <p className="mt-5 max-w-2xl text-base leading-relaxed text-white/62 md:text-lg">
-            Input a product and destination, compare a few countries and shipping assumptions,
-            then review a ranked recommendation.
+            Input a product and destination, compare a few countries and
+            shipping assumptions, then review a ranked recommendation.
           </p>
         </Reveal>
 
@@ -1059,20 +1136,21 @@ function FeaturesSection() {
         <Reveal delay={220} className="mt-12">
           <div className="landing-panel flex flex-col items-start justify-between gap-6 rounded-[2rem] border border-white/10 bg-black/16 p-8 md:flex-row md:items-center">
             <div className="max-w-xl">
-              <p className="text-sm uppercase tracking-[0.3em] text-white/42">
+              <p className="text-sm tracking-[0.3em] text-white/42 uppercase">
                 Ready to try it?
               </p>
               <p className="mt-3 text-2xl font-medium tracking-[-0.04em] text-white md:text-3xl">
-                Open the dashboard and explore the graph + globe.
+                Choose a CSV intake or continue into the demo dashboard.
               </p>
             </div>
-            <Link
-              href="/dashboard"
+            <DashboardLaunchButton
+              onLaunch={onLaunchDashboard}
+              disabled={isLaunching}
               className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-[#04110a] transition-transform duration-300 hover:-translate-y-0.5"
             >
-              Open Dashboard
+              Open launch options
               <span aria-hidden>→</span>
-            </Link>
+            </DashboardLaunchButton>
           </div>
         </Reveal>
       </div>
@@ -1080,12 +1158,18 @@ function FeaturesSection() {
   )
 }
 
-function Footer() {
+function Footer({
+  isLaunching,
+  onLaunchDashboard,
+}: {
+  isLaunching: boolean
+  onLaunchDashboard: () => void
+}) {
   return (
-    <footer id="about" className="px-6 pb-12 pt-4 md:px-10">
+    <footer id="about" className="px-6 pt-4 pb-12 md:px-10">
       <div className="mx-auto flex max-w-screen-xl flex-col gap-8 border-t border-white/8 pt-8 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-white/42">
+          <p className="text-sm tracking-[0.3em] text-white/42 uppercase">
             GreenChain
           </p>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/54">
@@ -1096,19 +1180,30 @@ function Footer() {
 
         <nav className="flex flex-wrap gap-x-8 gap-y-3 text-sm text-white/52">
           {[
-            ["/dashboard", "Dashboard"],
+            ["/launch", "Launch"],
             ["#platform", "Platform"],
             ["#capabilities", "Capabilities"],
             ["#about", "About"],
-          ].map(([href, label]) => (
-            <a
-              key={href}
-              href={href}
-              className="transition-colors hover:text-white"
-            >
-              {label}
-            </a>
-          ))}
+          ].map(([href, label]) =>
+            href === "/launch" ? (
+              <DashboardLaunchButton
+                key={href}
+                onLaunch={onLaunchDashboard}
+                disabled={isLaunching}
+                className="transition-colors hover:text-white"
+              >
+                {label}
+              </DashboardLaunchButton>
+            ) : (
+              <a
+                key={href}
+                href={href}
+                className="transition-colors hover:text-white"
+              >
+                {label}
+              </a>
+            )
+          )}
         </nav>
       </div>
     </footer>
@@ -1116,35 +1211,221 @@ function Footer() {
 }
 
 export default function LandingPage() {
+  const router = useRouter()
   const prefersReducedMotion = usePrefersReducedMotionSnapshot()
-  const hydrated = useHydrated()
-
-  const introMode: "full" | "instant" =
-    hydrated && prefersReducedMotion ? "instant" : "full"
-  const [introDone, setIntroDone] = useState(false)
-  const introActive = !introDone
-  const handleIntroDone = useCallback(() => setIntroDone(true), [])
+  const [launchState, setLaunchState] = useState<DashboardLaunchState | null>(
+    null
+  )
+  const launchRunIdRef = useRef(0)
+  const mountedRef = useRef(true)
+  const progressRef = useRef(DEFAULT_DASHBOARD_LAUNCH_STATE.progress)
+  const isLaunching = launchState !== null
 
   useEffect(() => {
-    if (!introActive) return
-    const previous = document.body.style.overflow
-    document.body.style.overflow = "hidden"
+    mountedRef.current = true
     return () => {
-      document.body.style.overflow = previous
+      mountedRef.current = false
+      launchRunIdRef.current += 1
     }
-  }, [introActive])
+  }, [])
+
+  useEffect(() => {
+    router.prefetch("/launch")
+  }, [router])
+
+  useEffect(() => {
+    if (!isLaunching) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isLaunching])
+
+  const handleLaunchDashboard = useCallback(() => {
+    if (isLaunching) return
+
+    const runId = launchRunIdRef.current + 1
+    launchRunIdRef.current = runId
+    progressRef.current = DEFAULT_DASHBOARD_LAUNCH_STATE.progress
+    setLaunchState(DEFAULT_DASHBOARD_LAUNCH_STATE)
+
+    const shouldContinue = () =>
+      mountedRef.current && launchRunIdRef.current === runId
+
+    const updateLaunchState = (
+      updater: (currentState: DashboardLaunchState) => DashboardLaunchState
+    ) => {
+      if (!shouldContinue()) return
+
+      setLaunchState((currentState) => {
+        if (!currentState) return currentState
+        return updater(currentState)
+      })
+    }
+
+    const setProgress = (nextProgress: number) => {
+      const rounded = Math.round(clamp(nextProgress, 0, 100))
+      progressRef.current = rounded
+      updateLaunchState((currentState) => ({
+        ...currentState,
+        progress: rounded,
+      }))
+    }
+
+    const setStatus = (status: DashboardLaunchStatus) => {
+      updateLaunchState((currentState) => ({
+        ...currentState,
+        status,
+      }))
+    }
+
+    const wait = (duration: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, duration)
+      })
+
+    const animateProgress = (from: number, to: number, duration: number) =>
+      new Promise<void>((resolve) => {
+        if (!shouldContinue()) {
+          resolve()
+          return
+        }
+
+        if (duration <= 0) {
+          setProgress(to)
+          resolve()
+          return
+        }
+
+        let raf = 0
+        const start = performance.now()
+        const tick = (now: number) => {
+          if (!shouldContinue()) {
+            cancelAnimationFrame(raf)
+            resolve()
+            return
+          }
+
+          const progress = clamp((now - start) / duration, 0, 1)
+          const eased = prefersReducedMotion ? progress : easeOutQuart(progress)
+          const value = from + (to - from) * eased
+          setProgress(value)
+
+          if (progress < 1) {
+            raf = requestAnimationFrame(tick)
+            return
+          }
+
+          resolve()
+        }
+
+        raf = requestAnimationFrame(tick)
+      })
+
+    const settleLaunchStage = (duration: number) =>
+      new Promise<void>((resolve) => {
+        if (!shouldContinue() || duration <= 0) {
+          resolve()
+          return
+        }
+
+        let raf = 0
+        const start = performance.now()
+        const tick = (now: number) => {
+          if (!shouldContinue()) {
+            cancelAnimationFrame(raf)
+            resolve()
+            return
+          }
+
+          const elapsed = now - start
+          const progress = clamp(elapsed / duration, 0, 1)
+          const eased = prefersReducedMotion ? progress : easeOutQuart(progress)
+          const visualTarget = 68 + (88 - 68) * eased
+          setProgress(Math.max(progressRef.current, visualTarget))
+
+          if (elapsed >= duration) {
+            resolve()
+            return
+          }
+
+          raf = requestAnimationFrame(tick)
+        }
+
+        raf = requestAnimationFrame(tick)
+      })
+
+    void (async () => {
+      const timings = prefersReducedMotion
+        ? {
+            entering: 160,
+            hold: 160,
+            prime: 160,
+            shell: 280,
+            syncCommit: 100,
+            sync: 220,
+          }
+        : {
+            entering: 240,
+            hold: 240,
+            prime: 240,
+            shell: 420,
+            syncCommit: 160,
+            sync: 360,
+          }
+
+      router.prefetch("/launch")
+
+      setStatus(DASHBOARD_LAUNCH_STATUSES.priming)
+      await animateProgress(0, 24, timings.prime)
+      if (!shouldContinue()) return
+
+      setStatus(DASHBOARD_LAUNCH_STATUSES.shell)
+      await animateProgress(24, 68, timings.shell)
+      if (!shouldContinue()) return
+
+      setStatus(DASHBOARD_LAUNCH_STATUSES.sync)
+      await settleLaunchStage(timings.sync)
+      if (!shouldContinue()) return
+
+      await animateProgress(progressRef.current, 92, timings.syncCommit)
+      if (!shouldContinue()) return
+
+      setStatus(DASHBOARD_LAUNCH_STATUSES.entering)
+      await animateProgress(progressRef.current, 100, timings.entering)
+      if (!shouldContinue()) return
+
+      await wait(timings.hold)
+      if (!shouldContinue()) return
+
+      router.push("/launch")
+    })()
+  }, [isLaunching, prefersReducedMotion, router])
 
   return (
     <main className="landing-page min-h-svh overflow-x-hidden text-foreground">
-      <LandingIntro
-        key={`${hydrated ? 1 : 0}-${introMode}`}
-        active={introActive}
-        mode={introMode}
-        onDone={handleIntroDone}
+      <DashboardLaunchOverlay
+        active={isLaunching}
+        progress={launchState?.progress ?? 0}
+        reducedMotion={prefersReducedMotion}
+        status={launchState?.status ?? DASHBOARD_LAUNCH_STATUSES.priming}
       />
-      <Hero introReady={!introActive} />
-      <FeaturesSection />
-      <Footer />
+      <Hero
+        introReady
+        isLaunching={isLaunching}
+        onLaunchDashboard={handleLaunchDashboard}
+      />
+      <FeaturesSection
+        isLaunching={isLaunching}
+        onLaunchDashboard={handleLaunchDashboard}
+      />
+      <Footer
+        isLaunching={isLaunching}
+        onLaunchDashboard={handleLaunchDashboard}
+      />
     </main>
   )
 }

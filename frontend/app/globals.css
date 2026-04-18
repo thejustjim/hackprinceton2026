@@ -7,8 +7,7 @@
 @theme inline {
   --font-heading:
     "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-  --font-sans:
-    "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -207,6 +206,49 @@
       color-mix(in oklab, var(--dashboard-glow-soft) 10%, transparent);
   }
 
+  .dashboard-drawer {
+    background: linear-gradient(
+      180deg,
+      rgba(18, 18, 26, 0.97),
+      rgba(10, 10, 16, 0.96)
+    );
+    border: 1px solid color-mix(in oklab, var(--border) 82%, white 8%);
+    border-radius: 1.15rem;
+    box-shadow:
+      0 28px 72px rgb(0 0 0 / 0.48),
+      0 0 0 1px color-mix(in oklab, var(--dashboard-glow-soft) 14%, transparent),
+      inset 0 1px 0 rgb(255 255 255 / 0.08);
+    backdrop-filter: blur(28px);
+  }
+
+  .dashboard-control-surface {
+    background: color-mix(in oklab, var(--card) 90%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 72%, white 3%);
+    box-shadow:
+      0 14px 34px rgb(0 0 0 / 0.26),
+      inset 0 1px 0 rgb(255 255 255 / 0.04);
+    backdrop-filter: blur(18px);
+  }
+
+  .dashboard-chip-muted {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] uppercase;
+    background: rgb(255 255 255 / 0.04);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    color: rgb(255 255 255 / 0.44);
+  }
+
+  .dashboard-chip-accent {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] uppercase;
+    background: color-mix(in oklab, var(--primary) 16%, transparent);
+    border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent);
+    color: color-mix(in oklab, var(--primary) 66%, white 20%);
+  }
+
+  .dashboard-section-label {
+    @apply text-[10px] font-medium tracking-[0.24em] uppercase;
+    color: rgb(255 255 255 / 0.38);
+  }
+
   .eyebrow {
     @apply text-[0.65rem] font-medium tracking-[0.28em] text-muted-foreground uppercase;
   }
@@ -227,12 +269,17 @@
   }
 
   @keyframes marquee {
-    from { transform: translateX(0); }
-    to   { transform: translateX(-50%); }
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
   }
 
   @keyframes landing-float {
-    0%, 100% {
+    0%,
+    100% {
       transform: translate3d(0, 0, 0);
     }
 
@@ -248,20 +295,27 @@
   .landing-page {
     @apply relative isolate;
     background:
-      radial-gradient(circle at 15% 10%, rgb(124 204 158 / 0.09), transparent 28%),
-      radial-gradient(circle at 85% 8%, rgb(220 182 112 / 0.08), transparent 24%),
+      radial-gradient(
+        circle at 15% 10%,
+        rgb(124 204 158 / 0.09),
+        transparent 28%
+      ),
+      radial-gradient(
+        circle at 85% 8%,
+        rgb(220 182 112 / 0.08),
+        transparent 24%
+      ),
       linear-gradient(180deg, #071015 0%, #050a0d 52%, #071116 100%);
   }
 
   .landing-page::before {
-    background:
-      linear-gradient(
-        180deg,
-        rgb(255 255 255 / 0.02),
-        transparent 22%,
-        transparent 78%,
-        rgb(255 255 255 / 0.025)
-      );
+    background: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.02),
+      transparent 22%,
+      transparent 78%,
+      rgb(255 255 255 / 0.025)
+    );
     content: "";
     inset: 0;
     pointer-events: none;
@@ -269,8 +323,11 @@
   }
 
   .landing-page::after {
-    background:
-      radial-gradient(circle at center, rgb(255 255 255 / 0.03), transparent 58%);
+    background: radial-gradient(
+      circle at center,
+      rgb(255 255 255 / 0.03),
+      transparent 58%
+    );
     content: "";
     inset: 0;
     mix-blend-mode: screen;
@@ -288,82 +345,189 @@
       linear-gradient(to right, rgb(255 255 255 / 0.07) 1px, transparent 1px),
       linear-gradient(to bottom, rgb(255 255 255 / 0.06) 1px, transparent 1px);
     background-size: 88px 88px;
-    mask-image: linear-gradient(180deg, rgb(0 0 0 / 0.35), black 30%, black 70%, transparent);
+    mask-image: linear-gradient(
+      180deg,
+      rgb(0 0 0 / 0.35),
+      black 30%,
+      black 70%,
+      transparent
+    );
   }
 
-  .landing-intro {
-    background: #000;
-    overflow: hidden;
-    pointer-events: none;
+  @keyframes landing-launch-route {
+    0% {
+      opacity: 0.34;
+      stroke-dashoffset: 240;
+    }
+
+    50% {
+      opacity: 0.88;
+    }
+
+    100% {
+      opacity: 0.48;
+      stroke-dashoffset: 0;
+    }
   }
 
-  .landing-intro.is-revealing {
-    background: transparent;
+  @keyframes landing-launch-node {
+    0%,
+    100% {
+      opacity: 0.42;
+      transform: scale(0.92);
+    }
+
+    45% {
+      opacity: 0.96;
+      transform: scale(1.08);
+    }
+
+    70% {
+      opacity: 0.74;
+      transform: scale(1);
+    }
   }
 
-  .landing-intro__content {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
+  @keyframes landing-launch-glow {
+    0%,
+    100% {
+      opacity: 0.68;
+      transform: scale(1);
+    }
+
+    50% {
+      opacity: 0.9;
+      transform: scale(1.04);
+    }
+  }
+
+  .landing-launch {
+    background:
+      linear-gradient(180deg, rgb(5 11 13 / 0.98), rgb(4 8 11 / 0.995)),
+      radial-gradient(
+        circle at 18% 18%,
+        rgb(124 255 214 / 0.1),
+        transparent 28%
+      ),
+      radial-gradient(
+        circle at 78% 16%,
+        rgb(124 216 255 / 0.08),
+        transparent 24%
+      );
+    cursor: progress;
+    isolation: isolate;
+  }
+
+  .landing-launch__backdrop {
+    background:
+      radial-gradient(
+        circle at 50% 42%,
+        rgb(124 255 214 / 0.08),
+        transparent 22%
+      ),
+      radial-gradient(
+        circle at 50% 50%,
+        rgb(124 216 255 / 0.06),
+        transparent 38%
+      ),
+      linear-gradient(
+        180deg,
+        rgb(4 8 10 / 0.12),
+        rgb(4 8 10 / 0.52) 52%,
+        rgb(4 8 10 / 0.82) 100%
+      );
+  }
+
+  .landing-launch__grid {
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.04) 1px, transparent 1px);
+    background-size: 84px 84px;
+    mask-image: radial-gradient(
+      circle at center,
+      black 32%,
+      rgb(0 0 0 / 0.46) 72%,
+      transparent 100%
+    );
+    opacity: 0.5;
+  }
+
+  .landing-launch__glow {
+    background:
+      radial-gradient(
+        circle at 50% 44%,
+        rgb(124 255 214 / 0.12),
+        transparent 18%
+      ),
+      radial-gradient(
+        circle at 50% 45%,
+        rgb(124 216 255 / 0.09),
+        transparent 26%
+      );
+    animation: landing-launch-glow 5.4s ease-in-out infinite;
+    filter: blur(12px);
+    opacity: 0.9;
+  }
+
+  .landing-launch__routes {
+    opacity: 0.72;
+  }
+
+  .landing-launch__route {
+    animation: landing-launch-route 2.5s cubic-bezier(0.22, 1, 0.36, 1) infinite
+      alternate;
+    stroke-dasharray: 28 18 140 24;
+  }
+
+  .landing-launch__route--2 {
+    animation-delay: 280ms;
+  }
+
+  .landing-launch__route--3 {
+    animation-delay: 520ms;
+  }
+
+  .landing-launch__node {
+    animation: landing-launch-node 2.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .landing-launch__content {
     transition:
-      opacity 420ms ease,
-      transform 420ms ease;
-    will-change: opacity, transform;
+      opacity 220ms ease,
+      transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  .landing-intro__content.is-hidden {
-    opacity: 0;
-    transform: translate3d(0, -18px, 0) scale(0.985);
+  .landing-launch__badge {
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.08) inset,
+      0 14px 40px rgb(0 0 0 / 0.24);
   }
 
-  .landing-intro__ring {
+  .landing-launch__ring {
     transform: rotate(-90deg);
     transform-origin: 50% 50%;
     transition: stroke-dashoffset 90ms linear;
     will-change: stroke-dashoffset;
   }
 
-  .landing-intro__panel {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    width: 25%;
-    z-index: 0;
-    background: rgb(9 9 11);
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
-    transition: transform 1200ms cubic-bezier(0.85, 0, 0.15, 1);
-    will-change: transform;
+  .landing-launch.is-reduced-motion .landing-launch__glow,
+  .landing-launch.is-reduced-motion .landing-launch__node,
+  .landing-launch.is-reduced-motion .landing-launch__route {
+    animation: none;
   }
 
-  .landing-intro__panel.is-hidden {
-    transform: translate3d(0, -100%, 0);
-  }
-
-  .landing-intro__panel--1 {
-    left: 0;
-    transition-delay: 0ms;
-  }
-  .landing-intro__panel--2 {
-    left: 25%;
-    transition-delay: 90ms;
-  }
-  .landing-intro__panel--3 {
-    left: 50%;
-    transition-delay: 180ms;
-  }
-  .landing-intro__panel--4 {
-    left: 75%;
-    transition-delay: 270ms;
-    border-right: none;
+  .landing-launch.is-reduced-motion .landing-launch__content {
+    transform: scale(0.992);
   }
 
   .landing-panel {
-    background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.03));
+    background: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.08),
+      rgb(255 255 255 / 0.03)
+    );
     border: 1px solid rgb(255 255 255 / 0.1);
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.06) inset,
@@ -377,8 +541,13 @@
   }
 
   .landing-card-frame::after {
-    background:
-      linear-gradient(180deg, rgb(255 255 255 / 0.06), transparent 22%, transparent 78%, rgb(255 255 255 / 0.04));
+    background: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.06),
+      transparent 22%,
+      transparent 78%,
+      rgb(255 255 255 / 0.04)
+    );
     content: "";
     inset: 0;
     pointer-events: none;

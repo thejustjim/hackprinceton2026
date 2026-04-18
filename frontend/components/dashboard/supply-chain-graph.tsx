@@ -65,6 +65,9 @@ function getEcoConfig(score: number) {
       glow: "0 0 18px rgba(52,211,153,0.45)",
       ring: "rgba(52,211,153,0.35)",
       bg: "rgba(52,211,153,0.08)",
+      panelBg:
+        "linear-gradient(180deg, rgba(18,30,27,0.97), rgba(10,20,18,0.95))",
+      panelBorder: "rgba(52,211,153,0.32)",
       text: "#34d399",
       label: "Low Impact",
     }
@@ -74,6 +77,9 @@ function getEcoConfig(score: number) {
       glow: "0 0 18px rgba(251,191,36,0.40)",
       ring: "rgba(251,191,36,0.35)",
       bg: "rgba(251,191,36,0.08)",
+      panelBg:
+        "linear-gradient(180deg, rgba(33,26,14,0.98), rgba(22,18,10,0.96))",
+      panelBorder: "rgba(251,191,36,0.32)",
       text: "#fbbf24",
       label: "Moderate",
     }
@@ -82,6 +88,9 @@ function getEcoConfig(score: number) {
     glow: "0 0 18px rgba(248,113,113,0.40)",
     ring: "rgba(248,113,113,0.35)",
     bg: "rgba(248,113,113,0.08)",
+    panelBg:
+      "linear-gradient(180deg, rgba(34,16,18,0.98), rgba(24,10,12,0.96))",
+    panelBorder: "rgba(248,113,113,0.32)",
     text: "#f87171",
     label: "High Impact",
   }
@@ -987,8 +996,7 @@ export function SupplyChainGraph({
       : null
   const ecoConfig = selectedMfr ? getEcoConfig(selectedMfr.ecoScore) : null
   const productNode =
-    nodes.find((node) => node.id === scenario.product.id) ??
-    nodes[0]
+    nodes.find((node) => node.id === scenario.product.id) ?? nodes[0]
   const productNodeSize = getNodeSize(productNode)
 
   // Cursor
@@ -1336,7 +1344,7 @@ export function SupplyChainGraph({
       {/* Detail panel */}
       {selectedNode && panelVisible && (
         <div
-          className="dashboard-drawer panel-slide-in absolute top-4 right-4 bottom-4 z-30 flex w-72 flex-col"
+          className="dashboard-drawer panel-slide-in absolute top-4 right-4 bottom-4 z-30 flex w-80 flex-col"
           style={
             ecoConfig
               ? {
@@ -1409,8 +1417,10 @@ export function SupplyChainGraph({
               <div
                 className="flex items-center gap-4 rounded-xl p-4"
                 style={{
-                  background: ecoConfig.bg,
-                  border: `1px solid ${ecoConfig.ring}`,
+                  background: ecoConfig.panelBg,
+                  border: `1px solid ${ecoConfig.panelBorder}`,
+                  boxShadow:
+                    "inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 36px rgba(0,0,0,0.22)",
                 }}
               >
                 <div className="relative flex-shrink-0">
@@ -1472,7 +1482,12 @@ export function SupplyChainGraph({
                   ].map(({ label, value, unit }) => (
                     <div
                       key={label}
-                      className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-2.5"
+                      className="rounded-lg border p-2.5"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(17,17,24,0.95), rgba(10,10,16,0.94))",
+                        borderColor: "rgba(255,255,255,0.09)",
+                      }}
                     >
                       <p className="mb-1 text-[9px] text-white/30">{label}</p>
                       <p className="text-sm font-semibold text-white/80">
@@ -1487,7 +1502,14 @@ export function SupplyChainGraph({
               </div>
 
               {/* Mfg range */}
-              <div className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-3">
+              <div
+                className="rounded-lg border p-3"
+                style={{
+                  background:
+                    "linear-gradient(180deg, rgba(17,17,24,0.95), rgba(10,10,16,0.94))",
+                  borderColor: "rgba(255,255,255,0.09)",
+                }}
+              >
                 <p className="mb-2 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
                   Mfg Emissions Range (tCO₂e)
                 </p>
@@ -1561,7 +1583,14 @@ export function SupplyChainGraph({
               )}
 
               {/* Location */}
-              <div className="rounded-lg border border-white/[0.05] bg-white/[0.03] p-3">
+              <div
+                className="rounded-lg border p-3"
+                style={{
+                  background:
+                    "linear-gradient(180deg, rgba(17,17,24,0.95), rgba(10,10,16,0.94))",
+                  borderColor: "rgba(255,255,255,0.09)",
+                }}
+              >
                 <p className="mb-1.5 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
                   Location
                 </p>
@@ -1676,7 +1705,8 @@ function NodeCard({
               isSelected || isHovered ? "emblem-pulse" : ""
             )}
             style={{
-              background: "color-mix(in oklab, var(--primary) 14%, transparent)",
+              background:
+                "color-mix(in oklab, var(--primary) 14%, transparent)",
               border:
                 "1px solid color-mix(in oklab, var(--primary) 24%, transparent)",
             }}
@@ -1783,6 +1813,11 @@ function NodeCard({
   if (d.kind === "manufacturer") {
     const eco = getEcoConfig(d.ecoScore)
     const status = getManufacturerStatusPresentation(d.isCurrent)
+    const manufacturerSurface = isSelected
+      ? `linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.015) 16%, transparent 24%), ${eco.panelBg}`
+      : isHovered
+        ? `linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012) 16%, transparent 24%), linear-gradient(180deg, rgba(16,16,28,0.985), rgba(11,11,21,0.97) 48%, rgba(8,8,16,0.985) 100%)`
+        : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 18%, transparent 24%), linear-gradient(180deg, rgba(13,13,24,0.985), rgba(10,10,19,0.975) 48%, rgba(8,8,15,0.988) 100%)"
     return (
       <div
         className={cn(
@@ -1791,16 +1826,23 @@ function NodeCard({
         )}
         style={{
           animationDelay: `${motionIndex * 0.4}s`,
-          background: isSelected
-            ? "linear-gradient(180deg, rgba(255,255,255,0.038), rgba(255,255,255,0.01) 16%, transparent 20%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 4%, rgba(8,8,16,0.94)), rgba(8,8,16,0.94) 48%, rgba(6,6,12,0.98) 100%)"
-            : "linear-gradient(180deg, rgba(255,255,255,0.024), rgba(255,255,255,0.008) 16%, transparent 20%), linear-gradient(180deg, rgba(8,8,16,0.94), rgba(8,8,16,0.92) 48%, rgba(6,6,12,0.98) 100%)",
-          border: `1px solid ${isSelected ? eco.color : isHovered ? "color-mix(in oklab, var(--accent) 18%, transparent)" : "rgba(255,255,255,0.07)"}`,
+          WebkitBackdropFilter:
+            isSelected || isHovered
+              ? "blur(18px) saturate(135%)"
+              : "blur(12px) saturate(115%)",
+          backdropFilter:
+            isSelected || isHovered
+              ? "blur(18px) saturate(135%)"
+              : "blur(12px) saturate(115%)",
+          background: manufacturerSurface,
+          border: `1px solid ${isSelected ? eco.panelBorder : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.10)"}`,
           boxShadow: isSelected
-            ? "0 14px 30px rgba(0,0,0,0.46), 0 0 0 1px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -12px 22px rgba(0,0,0,0.2)"
+            ? `0 18px 34px rgba(0,0,0,0.54), 0 0 0 1px ${eco.panelBorder}, 0 0 28px ${eco.ring}, inset 0 1px 0 rgba(255,255,255,0.065), inset 0 -12px 22px rgba(0,0,0,0.22)`
             : isHovered
-              ? "0 10px 22px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -10px 16px rgba(0,0,0,0.14)"
-              : "0 4px 16px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.02), inset 0 -10px 16px rgba(0,0,0,0.12)",
-          transition: "border-color 0.25s, box-shadow 0.25s",
+              ? "0 12px 24px rgba(0,0,0,0.44), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 16px rgba(0,0,0,0.16)"
+              : "0 7px 18px rgba(0,0,0,0.44), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -10px 16px rgba(0,0,0,0.14)",
+          transition:
+            "border-color 0.25s, box-shadow 0.25s, backdrop-filter 0.25s",
         }}
       >
         <div
@@ -1808,15 +1850,15 @@ function NodeCard({
           style={{
             background:
               "linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)",
-            opacity: isSelected ? 0.72 : isHovered ? 0.46 : 0.3,
+            opacity: isSelected ? 0.92 : isHovered ? 0.66 : 0.42,
           }}
         />
         <div
           className="node-surface-drift pointer-events-none absolute inset-0 rounded-xl"
           style={{
             background:
-              "linear-gradient(180deg, rgba(255,255,255,0.03), transparent 34%)",
-            }}
+              "linear-gradient(180deg, rgba(255,255,255,0.04), transparent 34%)",
+          }}
         />
         {/* Subtle inner gradient */}
         <div
@@ -1829,10 +1871,16 @@ function NodeCard({
 
         <div className="relative flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-xs leading-tight font-semibold text-white/88">
+            <p
+              className="line-clamp-2 text-[13px] leading-tight font-semibold text-white/96"
+              style={{ textShadow: "0 1px 8px rgba(0,0,0,0.34)" }}
+            >
               {d.name}
             </p>
-            <p className="mt-0.5 text-[10px] text-white/30">
+            <p
+              className="mt-0.5 text-[10px] text-white/52"
+              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.28)" }}
+            >
               {d.location.city}, {d.location.country}
             </p>
           </div>
@@ -1856,13 +1904,13 @@ function NodeCard({
 
         <div
           className="relative flex items-center gap-2 pt-2"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+          style={{ borderTop: "1px solid rgba(255,255,255,0.10)" }}
         >
           <div className="flex-1">
-            <p className="mb-0.5 text-[9px] text-white/25">Eco Score</p>
+            <p className="mb-0.5 text-[9px] text-white/42">Eco Score</p>
             <div className="flex items-center gap-1.5">
               {/* Mini bar */}
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.11]">
                 <div
                   className="h-full rounded-full transition-all duration-700"
                   style={{
@@ -1873,8 +1921,11 @@ function NodeCard({
                 />
               </div>
               <span
-                className="text-[10px] font-bold tabular-nums"
-                style={{ color: eco.color }}
+                className="text-[11px] font-bold tabular-nums"
+                style={{
+                  color: eco.color,
+                  textShadow: `0 0 10px ${eco.ring}`,
+                }}
               >
                 {d.ecoScore}
               </span>

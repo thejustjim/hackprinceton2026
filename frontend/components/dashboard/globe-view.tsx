@@ -1,10 +1,7 @@
 "use client"
 
 import { HugeiconsIcon } from "@hugeicons/react"
-import {
-  MapsGlobal01Icon,
-  Route03Icon,
-} from "@hugeicons/core-free-icons"
+import { MapsGlobal01Icon, Route03Icon } from "@hugeicons/core-free-icons"
 
 import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
 import { Button } from "@/components/ui/button"
@@ -80,15 +77,32 @@ function getManufacturerStatusStyles(isCurrent: boolean) {
     ? {
         badgeClassName:
           "border border-amber-300/24 bg-amber-300/10 text-amber-200",
-        dotClassName: "bg-amber-300",
-        dotShadow: "0 0 10px rgba(252,211,77,0.34)",
       }
     : {
         badgeClassName:
           "border border-emerald-400/22 bg-emerald-400/10 text-emerald-300",
-        dotClassName: "bg-emerald-400",
-        dotShadow: "0 0 10px rgba(52,211,153,0.26)",
       }
+}
+
+function getEcoDotStyles(score: number) {
+  if (score < 40) {
+    return {
+      background: "#34d399",
+      shadow: "0 0 10px rgba(52,211,153,0.34)",
+    }
+  }
+
+  if (score < 60) {
+    return {
+      background: "#fbbf24",
+      shadow: "0 0 10px rgba(251,191,36,0.34)",
+    }
+  }
+
+  return {
+    background: "#f87171",
+    shadow: "0 0 10px rgba(248,113,113,0.34)",
+  }
 }
 
 function ManufacturerRow({
@@ -105,6 +119,7 @@ function ManufacturerRow({
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
 }) {
   const statusStyles = getManufacturerStatusStyles(manufacturer.isCurrent)
+  const ecoDotStyles = getEcoDotStyles(manufacturer.ecoScore)
 
   return (
     <button
@@ -130,12 +145,10 @@ function ManufacturerRow({
       }}
     >
       <span
-        className={cn(
-          "h-2 w-2 flex-shrink-0 rounded-full",
-          statusStyles.dotClassName
-        )}
+        className="h-2 w-2 flex-shrink-0 rounded-full"
         style={{
-          boxShadow: statusStyles.dotShadow,
+          background: ecoDotStyles.background,
+          boxShadow: ecoDotStyles.shadow,
         }}
       />
       <div className="min-w-0 flex-1">
@@ -306,6 +319,12 @@ export function GlobeView({
                 scenario,
                 component
               )
+              const currentManufacturer =
+                manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
+                manufacturers[0]
+              const componentDotStyles = currentManufacturer
+                ? getEcoDotStyles(currentManufacturer.ecoScore)
+                : null
               const isFocusedComponent =
                 selectedComponentId === component.id ||
                 hoveredComponentId === component.id
@@ -344,8 +363,10 @@ export function GlobeView({
                           className="h-1.5 w-1.5 rounded-full"
                           style={{
                             background:
+                              componentDotStyles?.background ??
                               "color-mix(in oklab, var(--primary) 82%, white 8%)",
                             boxShadow:
+                              componentDotStyles?.shadow ??
                               "0 0 10px color-mix(in oklab, var(--primary) 26%, transparent)",
                           }}
                         />

@@ -1,0 +1,2 @@
+product,quantity,destination,countries,transport_mode,require_certifications,target_count
+cotton t-shirts,10000,US,CN|PT|BD,sea,iso14001|sbt_committed,9

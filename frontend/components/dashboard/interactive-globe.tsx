@@ -52,6 +52,7 @@ interface ProjectedPoint {
 
 interface RouteModel {
   componentId: string
+  ecoScore: number
   id: string
   isCurrent: boolean
   manufacturerId: string
@@ -63,6 +64,7 @@ interface RouteLabelModel {
   anchorY: number
   candidateKey: string
   componentId: string
+  ecoScore: number
   height: number
   isCurrent: boolean
   label: string
@@ -76,6 +78,11 @@ interface RouteLabelModel {
   width: number
   x: number
   y: number
+}
+
+interface RouteLabelMotionState {
+  outward: number
+  progress: number
 }
 
 interface FocusState {
@@ -98,7 +105,9 @@ const FRONT_PATH_THRESHOLD = 0
 const BACK_PATH_THRESHOLD = -0.18
 const ROUTE_FRONT_SURFACE_PADDING = 0.004
 const IDLE_COMMIT_INTERVAL_MS = 1000 / 36
-const ROUTE_LABEL_DRIFT_SPEED = 0.00034
+const ROUTE_LABEL_PROGRESS_LIMIT = 0.06
+const ROUTE_LABEL_OUTWARD_LIMIT = 0.42
+const ROUTE_LABEL_MOTION_RESPONSE = 0.12
 const GRID_LATITUDES_PRIMARY = [-60, -36, -12, 12, 36, 60]
 const GRID_LATITUDES_SECONDARY = [-72, -48, -24, 0, 24, 48, 72]
 const GRID_LONGITUDES_PRIMARY = [
@@ -547,9 +556,9 @@ function getRouteLabelAnchor(
 
   const offset = {
     x:
-      outwardDirection.x * (2.8 * offsetScale) + normal.x * (1.3 * offsetScale),
+      outwardDirection.x * (4.6 * offsetScale) + normal.x * (2.4 * offsetScale),
     y:
-      outwardDirection.y * (2.8 * offsetScale) + normal.y * (1.3 * offsetScale),
+      outwardDirection.y * (4.6 * offsetScale) + normal.y * (2.4 * offsetScale),
   }
   const offsetMagnitude = Math.hypot(offset.x, offset.y) || 1
   const positionedAnchor = {
@@ -581,13 +590,14 @@ function getRouteLabelPlacementPenalty(
   placedLabels: RouteLabelModel[],
   anchorOffset: number
 ) {
-  let penalty = Math.abs(anchorOffset) * 20
+  let penalty = Math.abs(anchorOffset) * 140
 
   for (const placedLabel of placedLabels) {
     const deltaX = Math.abs(candidate.x - placedLabel.x)
     const deltaY = Math.abs(candidate.y - placedLabel.y)
-    const overlapX = candidate.width / 2 + placedLabel.width / 2 + 3.2 - deltaX
-    const overlapY = candidate.height / 2 + placedLabel.height / 2 + 2 - deltaY
+    const overlapX = candidate.width / 2 + placedLabel.width / 2 + 5.8 - deltaX
+    const overlapY =
+      candidate.height / 2 + placedLabel.height / 2 + 3.8 - deltaY
 
     if (overlapX > 0 && overlapY > 0) {
       penalty += 420 + overlapX * overlapY * 30
@@ -597,8 +607,8 @@ function getRouteLabelPlacementPenalty(
     const gapX = deltaX - (candidate.width / 2 + placedLabel.width / 2)
     const gapY = deltaY - (candidate.height / 2 + placedLabel.height / 2)
 
-    if (gapX < 4.2 && gapY < 2.8) {
-      penalty += (4.2 - gapX) * 42 + (2.8 - gapY) * 34
+    if (gapX < 7.4 && gapY < 5.8) {
+      penalty += (7.4 - gapX) * 54 + (5.8 - gapY) * 44
     }
   }
 
@@ -628,9 +638,9 @@ function resolveRouteLabelCollisions(labels: RouteLabelModel[]) {
         const deltaX = otherLabel.x - label.x
         const deltaY = otherLabel.y - label.y
         const overlapX =
-          label.width / 2 + otherLabel.width / 2 + 1.2 - Math.abs(deltaX)
+          label.width / 2 + otherLabel.width / 2 + 3.2 - Math.abs(deltaX)
         const overlapY =
-          label.height / 2 + otherLabel.height / 2 + 0.9 - Math.abs(deltaY)
+          label.height / 2 + otherLabel.height / 2 + 2.4 - Math.abs(deltaY)
 
         if (overlapX <= 0 || overlapY <= 0) {
           continue
@@ -651,12 +661,12 @@ function resolveRouteLabelCollisions(labels: RouteLabelModel[]) {
                 ? -1
                 : 1
               : Math.sign(deltaY)
-          const shift = overlapY / 2 + 0.24
+          const shift = overlapY / 2 + 0.72
 
           label.y -= direction * shift * labelShare
           otherLabel.y += direction * shift * otherShare
-          label.x -= label.normalX * shift * 0.28 * labelShare
-          otherLabel.x += otherLabel.normalX * shift * 0.28 * otherShare
+          label.x -= label.normalX * shift * 0.5 * labelShare
+          otherLabel.x += otherLabel.normalX * shift * 0.5 * otherShare
         } else {
           const direction =
             deltaX === 0
@@ -664,21 +674,21 @@ function resolveRouteLabelCollisions(labels: RouteLabelModel[]) {
                 ? -1
                 : 1
               : Math.sign(deltaX)
-          const shift = overlapX / 2 + 0.28
+          const shift = overlapX / 2 + 0.62
 
           label.x -= direction * shift * labelShare
           otherLabel.x += direction * shift * otherShare
-          label.y -= label.normalY * shift * 0.24 * labelShare
-          otherLabel.y += otherLabel.normalY * shift * 0.24 * otherShare
+          label.y -= label.normalY * shift * 0.42 * labelShare
+          otherLabel.y += otherLabel.normalY * shift * 0.42 * otherShare
         }
       }
     }
 
     resolved.forEach((label) => {
-      label.x += (label.anchorX - label.x) * 0.08
-      label.y += (label.anchorY - label.y) * 0.08
-      label.x = clamp(label.x, label.width / 2 + 7, 93 - label.width / 2)
-      label.y = clamp(label.y, label.height / 2 + 6.5, 93 - label.height / 2)
+      label.x += (label.anchorX - label.x) * 0.05
+      label.y += (label.anchorY - label.y) * 0.05
+      label.x = clamp(label.x, label.width / 2 + 6.5, 93.5 - label.width / 2)
+      label.y = clamp(label.y, label.height / 2 + 5.8, 94 - label.height / 2)
     })
 
     if (!shifted) {
@@ -770,12 +780,75 @@ function resolveFocus(
   }
 }
 
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "")
+  const value =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => `${char}${char}`)
+          .join("")
+      : normalized
+
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+
+  return `rgba(${red},${green},${blue},${alpha})`
+}
+
+function getEcoRoutePalette(score: number) {
+  if (score < 40) {
+    return {
+      coreFaint: hexToRgba("#34D399", 0.24),
+      coreMedium: hexToRgba("#34D399", 0.82),
+      coreSoft: hexToRgba("#34D399", 0.58),
+      coreStrong: "#34D399",
+      glowFaint: hexToRgba("#34D399", 0.08),
+      glowMedium: hexToRgba("#34D399", 0.24),
+      glowStrong: hexToRgba("#34D399", 0.4),
+      pulseFaint: hexToRgba("#ECFDF5", 0.24),
+      pulseMedium: hexToRgba("#ECFDF5", 0.84),
+      pulseStrong: "#ECFDF5",
+    }
+  }
+
+  if (score < 60) {
+    return {
+      coreFaint: hexToRgba("#FBBF24", 0.26),
+      coreMedium: hexToRgba("#FBBF24", 0.84),
+      coreSoft: hexToRgba("#FBBF24", 0.6),
+      coreStrong: "#FBBF24",
+      glowFaint: hexToRgba("#FBBF24", 0.08),
+      glowMedium: hexToRgba("#FBBF24", 0.24),
+      glowStrong: hexToRgba("#FBBF24", 0.38),
+      pulseFaint: hexToRgba("#FEF3C7", 0.26),
+      pulseMedium: hexToRgba("#FEF3C7", 0.86),
+      pulseStrong: "#FEF3C7",
+    }
+  }
+
+  return {
+    coreFaint: hexToRgba("#F87171", 0.28),
+    coreMedium: hexToRgba("#F87171", 0.86),
+    coreSoft: hexToRgba("#F87171", 0.62),
+    coreStrong: "#F87171",
+    glowFaint: hexToRgba("#F87171", 0.08),
+    glowMedium: hexToRgba("#F87171", 0.24),
+    glowStrong: hexToRgba("#F87171", 0.4),
+    pulseFaint: hexToRgba("#FEE2E2", 0.28),
+    pulseMedium: hexToRgba("#FEE2E2", 0.88),
+    pulseStrong: "#FEE2E2",
+  }
+}
+
 function getRouteStyle(
   route: RouteModel,
   selectedFocus: FocusState | null,
   hoveredFocus: FocusState | null,
   pinnedManufacturerByComponent: Record<string, string>
 ) {
+  const palette = getEcoRoutePalette(route.ecoScore)
   const overviewActive =
     (!selectedFocus && !hoveredFocus) ||
     selectedFocus?.product ||
@@ -797,14 +870,14 @@ function getRouteStyle(
 
   if (selectedManufacturer) {
     return {
-      coreColor: "#EEE7F8",
+      coreColor: palette.coreStrong,
       coreOpacity: 1,
       coreWidth: 1.52,
-      glowColor: "rgba(162,142,196,0.44)",
+      glowColor: palette.glowStrong,
       glowOpacity: 0.98,
       glowWidth: 3.5,
       priority: 6,
-      pulseColor: "#FBF8FF",
+      pulseColor: palette.pulseStrong,
       pulseDash: "16 84",
       pulseDuration: "6.8s",
       pulseOpacity: 0.98,
@@ -814,14 +887,14 @@ function getRouteStyle(
 
   if (hoveredManufacturer) {
     return {
-      coreColor: "#E2D8F0",
+      coreColor: palette.coreMedium,
       coreOpacity: 0.98,
       coreWidth: 1.38,
-      glowColor: "rgba(149,131,183,0.38)",
+      glowColor: palette.glowStrong,
       glowOpacity: 0.92,
       glowWidth: 3.1,
       priority: 5,
-      pulseColor: "#F4EDFB",
+      pulseColor: palette.pulseMedium,
       pulseDash: "15 85",
       pulseDuration: "7.2s",
       pulseOpacity: 0.94,
@@ -832,14 +905,14 @@ function getRouteStyle(
   if (selectedComponent) {
     if (pinnedManufacturer) {
       return {
-        coreColor: "#E1D6F0",
+        coreColor: palette.coreMedium,
         coreOpacity: 0.98,
         coreWidth: 1.28,
-        glowColor: "rgba(148,130,183,0.34)",
+        glowColor: palette.glowMedium,
         glowOpacity: 0.9,
         glowWidth: 2.95,
         priority: 4.5,
-        pulseColor: "#F6EFFD",
+        pulseColor: palette.pulseMedium,
         pulseDash: "14 86",
         pulseDuration: "7.4s",
         pulseOpacity: 0.9,
@@ -849,28 +922,28 @@ function getRouteStyle(
 
     return route.isCurrent
       ? {
-          coreColor: "#DCCEEA",
+          coreColor: palette.coreMedium,
           coreOpacity: 0.96,
           coreWidth: 1.24,
-          glowColor: "rgba(142,125,176,0.3)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.86,
           glowWidth: 2.8,
           priority: 4,
-          pulseColor: "#F4EDFB",
+          pulseColor: palette.pulseMedium,
           pulseDash: "14 86",
           pulseDuration: "7.6s",
           pulseOpacity: 0.88,
           pulseWidth: 1.34,
         }
       : {
-          coreColor: "rgba(209,195,228,0.74)",
+          coreColor: palette.coreSoft,
           coreOpacity: 0.82,
           coreWidth: 0.98,
-          glowColor: "rgba(128,112,161,0.2)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.68,
           glowWidth: 2.2,
           priority: 3,
-          pulseColor: "rgba(244,237,251,0.8)",
+          pulseColor: palette.pulseMedium,
           pulseDash: "12 88",
           pulseDuration: "8.4s",
           pulseOpacity: 0.76,
@@ -881,14 +954,14 @@ function getRouteStyle(
   if (hoveredComponent) {
     if (pinnedManufacturer) {
       return {
-        coreColor: "#DDD1EB",
+        coreColor: palette.coreMedium,
         coreOpacity: 0.94,
         coreWidth: 1.18,
-        glowColor: "rgba(142,124,175,0.3)",
+        glowColor: palette.glowMedium,
         glowOpacity: 0.84,
         glowWidth: 2.7,
         priority: 3.5,
-        pulseColor: "#F4ECFC",
+        pulseColor: palette.pulseMedium,
         pulseDash: "13 87",
         pulseDuration: "7.9s",
         pulseOpacity: 0.84,
@@ -898,28 +971,28 @@ function getRouteStyle(
 
     return route.isCurrent
       ? {
-          coreColor: "#D7CAE7",
+          coreColor: palette.coreMedium,
           coreOpacity: 0.92,
           coreWidth: 1.18,
-          glowColor: "rgba(138,121,170,0.28)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.82,
           glowWidth: 2.6,
           priority: 3,
-          pulseColor: "#F1E9FA",
+          pulseColor: palette.pulseMedium,
           pulseDash: "13 87",
           pulseDuration: "8s",
           pulseOpacity: 0.84,
           pulseWidth: 1.26,
         }
       : {
-          coreColor: "rgba(202,190,222,0.66)",
+          coreColor: palette.coreSoft,
           coreOpacity: 0.78,
           coreWidth: 0.9,
-          glowColor: "rgba(122,108,154,0.17)",
+          glowColor: palette.glowFaint,
           glowOpacity: 0.6,
           glowWidth: 2,
           priority: 2,
-          pulseColor: "rgba(240,232,248,0.7)",
+          pulseColor: palette.pulseFaint,
           pulseDash: "12 88",
           pulseDuration: "8.8s",
           pulseOpacity: 0.7,
@@ -930,28 +1003,28 @@ function getRouteStyle(
   if (pinnedManufacturer) {
     return route.isCurrent
       ? {
-          coreColor: "#D9CBE9",
+          coreColor: palette.coreMedium,
           coreOpacity: 0.92,
           coreWidth: 1.14,
-          glowColor: "rgba(140,123,173,0.29)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.82,
           glowWidth: 2.55,
           priority: 2.5,
-          pulseColor: "#F2EAFB",
+          pulseColor: palette.pulseMedium,
           pulseDash: "13 87",
           pulseDuration: "8s",
           pulseOpacity: 0.82,
           pulseWidth: 1.22,
         }
       : {
-          coreColor: "rgba(216,206,235,0.82)",
+          coreColor: palette.coreSoft,
           coreOpacity: 0.88,
           coreWidth: 1.04,
-          glowColor: "rgba(132,116,166,0.24)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.72,
           glowWidth: 2.28,
           priority: 2.3,
-          pulseColor: "rgba(242,234,251,0.84)",
+          pulseColor: palette.pulseMedium,
           pulseDash: "12 88",
           pulseDuration: "8.6s",
           pulseOpacity: 0.76,
@@ -962,28 +1035,28 @@ function getRouteStyle(
   if (overviewActive) {
     return route.isCurrent
       ? {
-          coreColor: "#D1C2E3",
+          coreColor: palette.coreMedium,
           coreOpacity: 0.94,
           coreWidth: 1.12,
-          glowColor: "rgba(133,117,166,0.25)",
+          glowColor: palette.glowMedium,
           glowOpacity: 0.76,
           glowWidth: 2.45,
           priority: 2,
-          pulseColor: "#F0E8FA",
+          pulseColor: palette.pulseMedium,
           pulseDash: "13 87",
           pulseDuration: "8.2s",
           pulseOpacity: 0.84,
           pulseWidth: 1.2,
         }
       : {
-          coreColor: "rgba(176,158,202,0.48)",
+          coreColor: palette.coreSoft,
           coreOpacity: 0.62,
           coreWidth: 0.78,
-          glowColor: "rgba(114,100,146,0.13)",
+          glowColor: palette.glowFaint,
           glowOpacity: 0.42,
           glowWidth: 1.72,
           priority: 1,
-          pulseColor: "rgba(236,228,246,0.56)",
+          pulseColor: palette.pulseFaint,
           pulseDash: "11 89",
           pulseDuration: "9.2s",
           pulseOpacity: 0.56,
@@ -993,28 +1066,28 @@ function getRouteStyle(
 
   return route.isCurrent && anyFocusedRoute
     ? {
-        coreColor: "rgba(192,177,219,0.3)",
+        coreColor: palette.coreFaint,
         coreOpacity: 0.34,
         coreWidth: 0.54,
-        glowColor: "rgba(111,96,141,0.08)",
+        glowColor: palette.glowFaint,
         glowOpacity: 0.16,
         glowWidth: 1.28,
         priority: 0,
-        pulseColor: "rgba(233,225,244,0.24)",
+        pulseColor: palette.pulseFaint,
         pulseDash: "10 90",
         pulseDuration: "10.2s",
         pulseOpacity: 0.22,
         pulseWidth: 0.62,
       }
     : {
-        coreColor: "rgba(193,184,213,0.16)",
+        coreColor: palette.coreFaint,
         coreOpacity: 0.18,
         coreWidth: 0.42,
-        glowColor: "rgba(101,88,131,0.04)",
+        glowColor: palette.glowFaint,
         glowOpacity: 0.08,
         glowWidth: 0.96,
         priority: 0,
-        pulseColor: "rgba(228,220,240,0.12)",
+        pulseColor: palette.pulseFaint,
         pulseDash: "10 90",
         pulseDuration: "10.8s",
         pulseOpacity: 0.1,
@@ -1052,12 +1125,17 @@ export function InteractiveGlobe({
   selectedNodeId,
 }: InteractiveGlobeProps) {
   const [rotation, setRotation] = useState(DEFAULT_ROTATION)
-  const [routeLabelPhase, setRouteLabelPhase] = useState(0)
+  const [routeLabelMotion, setRouteLabelMotion] =
+    useState<RouteLabelMotionState>({ outward: 0, progress: 0 })
   const [geometry, setGeometry] = useState(DEFAULT_GLOBE_GEOMETRY)
   const clipPathId = `globe-clip-${useId().replaceAll(":", "")}`
   const dragStateRef = useRef<DragState | null>(null)
   const lastCommitRef = useRef(0)
   const rotationRef = useRef(DEFAULT_ROTATION)
+  const routeLabelMotionRef = useRef<RouteLabelMotionState>({
+    outward: 0,
+    progress: 0,
+  })
   const velocityRef = useRef({ pitch: 0, yaw: 0 })
 
   useEffect(() => {
@@ -1101,6 +1179,28 @@ export function InteractiveGlobe({
         }
       }
 
+      routeLabelMotionRef.current = {
+        outward:
+          routeLabelMotionRef.current.outward +
+          (clamp(
+            Math.hypot(velocityRef.current.pitch, velocityRef.current.yaw) *
+              180,
+            0,
+            ROUTE_LABEL_OUTWARD_LIMIT
+          ) -
+            routeLabelMotionRef.current.outward) *
+            ROUTE_LABEL_MOTION_RESPONSE,
+        progress:
+          routeLabelMotionRef.current.progress +
+          (clamp(
+            velocityRef.current.yaw * 18,
+            -ROUTE_LABEL_PROGRESS_LIMIT,
+            ROUTE_LABEL_PROGRESS_LIMIT
+          ) -
+            routeLabelMotionRef.current.progress) *
+            ROUTE_LABEL_MOTION_RESPONSE,
+      }
+
       const shouldCommit =
         dragStateRef.current ||
         timestamp - lastCommitRef.current >= IDLE_COMMIT_INTERVAL_MS
@@ -1108,7 +1208,7 @@ export function InteractiveGlobe({
       if (shouldCommit) {
         lastCommitRef.current = timestamp
         setRotation({ ...rotationRef.current })
-        setRouteLabelPhase(timestamp * ROUTE_LABEL_DRIFT_SPEED)
+        setRouteLabelMotion({ ...routeLabelMotionRef.current })
       }
 
       frameId = window.requestAnimationFrame(tick)
@@ -1161,6 +1261,7 @@ export function InteractiveGlobe({
 
           return {
             componentId: route.componentId,
+            ecoScore: manufacturer.ecoScore,
             id: route.id,
             isCurrent: route.isCurrent,
             manufacturerId: route.manufacturerId,
@@ -1366,12 +1467,12 @@ export function InteractiveGlobe({
     for (const descriptor of labelDescriptors) {
       const { candidateRoutes, component, componentIndex, priority } =
         descriptor
-      const width = Math.max(18, component.label.length * 1.8 + 9)
-      const height = 5.9
+      const width = Math.max(21, component.label.length * 1.92 + 11)
+      const height = 6.8
       const laneOffset =
         componentCount <= 1
           ? 0
-          : (componentIndex / Math.max(1, componentCount - 1) - 0.5) * 0.4
+          : (componentIndex / Math.max(1, componentCount - 1) - 0.5) * 1.05
       let bestLabel: RouteLabelModel | null = null
       let bestPenalty = Number.POSITIVE_INFINITY
 
@@ -1387,26 +1488,26 @@ export function InteractiveGlobe({
           continue
         }
 
-        const baseProgress = clamp(
-          0.48 +
-            laneOffset +
-            Math.sin(
-              routeLabelPhase + componentIndex * 0.82 + routeIndex * 0.38
-            ) *
-              0.04,
-          0.16,
-          0.84
+        const midpointProgress = clamp(
+          0.5 + routeLabelMotion.progress * (routeIndex === 0 ? 1 : 0.72),
+          0.43,
+          0.57
         )
-        const progressOffsets = [0, -0.18, 0.18, -0.32, 0.32, -0.42, 0.42]
-        const offsetScales = [1.1, 1.45, 1.85, 2.2]
+        const progressOffsets = [0, -0.12, 0.12, -0.22, 0.22, -0.32, 0.32]
+        const offsetScales = [
+          1.35 + routeLabelMotion.outward * 0.35,
+          1.8 + routeLabelMotion.outward * 0.45,
+          2.25 + routeLabelMotion.outward * 0.55,
+          2.8 + routeLabelMotion.outward * 0.65,
+        ]
 
         for (const progressOffset of progressOffsets) {
-          const progress = clamp(baseProgress + progressOffset, 0.16, 0.84)
+          const progress = clamp(midpointProgress + progressOffset, 0.14, 0.86)
           for (const offsetScale of offsetScales) {
             const anchor = getRouteLabelAnchor(
               visibleRun,
               progress,
-              offsetScale + Math.abs(progressOffset) * 0.85
+              offsetScale + Math.abs(laneOffset) * 0.55
             )
 
             if (!anchor) {
@@ -1419,6 +1520,7 @@ export function InteractiveGlobe({
               anchorY: roundForSvg(anchor.y),
               candidateKey,
               componentId: component.id,
+              ecoScore: route.ecoScore,
               height,
               isCurrent: route.isCurrent,
               label: component.label,
@@ -1440,7 +1542,8 @@ export function InteractiveGlobe({
                 progressOffset
               ) +
               routeIndex * 44 +
-              (offsetScale - 1) * 14
+              Math.abs(laneOffset) * 18 +
+              (offsetScale - 1) * 12
 
             if (penalty < bestPenalty) {
               bestPenalty = penalty
@@ -1463,7 +1566,7 @@ export function InteractiveGlobe({
     hoveredFocus,
     pinnedManufacturerByComponent,
     rotation,
-    routeLabelPhase,
+    routeLabelMotion,
     routeModels,
     scenario.components,
     selectedFocus,
@@ -1907,6 +2010,7 @@ export function InteractiveGlobe({
               return null
             }
 
+            const palette = getEcoRoutePalette(manufacturer.ecoScore)
             const focused =
               selectedNodeId === manufacturer.id ||
               hoveredNodeId === manufacturer.id ||
@@ -1934,9 +2038,9 @@ export function InteractiveGlobe({
                     cx={site.point.x}
                     cy={site.point.y}
                     r={radius + 2.4}
-                    fill="rgba(158,140,189,0.08)"
+                    fill={palette.glowFaint}
                     opacity={manufacturer.isCurrent || pinned ? 0.42 : 0.28}
-                    stroke="rgba(196,184,220,0.18)"
+                    stroke={palette.glowMedium}
                     strokeWidth="0.2"
                   >
                     <animate
@@ -1964,8 +2068,8 @@ export function InteractiveGlobe({
                     cx={site.point.x}
                     cy={site.point.y}
                     r={radius + 2.1}
-                    fill="rgba(216,206,233,0.08)"
-                    stroke="rgba(196,185,220,0.34)"
+                    fill={palette.glowFaint}
+                    stroke={palette.coreSoft}
                     strokeWidth="0.34"
                   />
                 ) : null}
@@ -1975,15 +2079,15 @@ export function InteractiveGlobe({
                   r={radius}
                   fill={
                     manufacturer.isCurrent || pinned
-                      ? "#F8F3FF"
-                      : "rgba(248,243,255,0.8)"
+                      ? palette.pulseStrong
+                      : palette.pulseMedium
                   }
                   stroke={
                     focused
-                      ? "rgba(205,191,228,0.36)"
+                      ? palette.coreStrong
                       : pinned
-                        ? "rgba(194,180,221,0.28)"
-                        : "rgba(255,255,255,0.22)"
+                        ? palette.coreMedium
+                        : palette.coreSoft
                   }
                   strokeWidth="0.3"
                 >
@@ -2191,77 +2295,86 @@ export function InteractiveGlobe({
           </text>
         </g>
 
-        {dynamicComponentLabels.map((label) => (
-          <g
-            key={`route-label-${label.componentId}`}
-            className={
-              label.isCurrent
-                ? "globe-floating-label globe-floating-label-pulse"
-                : "globe-floating-label"
-            }
-            onClick={() => onSelectNode(label.componentId)}
-            onPointerEnter={() => onHoverNode(label.manufacturerId)}
-            onPointerLeave={() => onHoverNode(null)}
-            style={{ cursor: "pointer" }}
-          >
-            {getRouteLabelLeaderPath(label) ? (
-              <>
-                <path
-                  d={getRouteLabelLeaderPath(label) ?? undefined}
-                  fill="none"
-                  stroke={
-                    label.isCurrent
-                      ? "rgba(194,182,214,0.42)"
-                      : "rgba(153,142,178,0.28)"
-                  }
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={0.34}
-                />
-                <circle
-                  cx={label.routeX}
-                  cy={label.routeY}
-                  r={0.48}
-                  className={label.isCurrent ? "globe-floating-label-dot" : undefined}
-                  fill={
-                    label.isCurrent
-                      ? "rgba(234,228,245,0.76)"
-                      : "rgba(178,168,199,0.38)"
-                  }
-                />
-              </>
-            ) : null}
-            <rect
-              x={label.x - label.width / 2}
-              y={label.y - label.height / 2}
-              width={label.width}
-              height={label.height}
-              rx={label.height / 2}
-              fill={
-                label.isCurrent ? "rgba(46,39,61,0.86)" : "rgba(22,19,30,0.9)"
-              }
-              stroke={
+        {dynamicComponentLabels.map((label) => {
+          const palette = getEcoRoutePalette(label.ecoScore)
+          const leaderPath = getRouteLabelLeaderPath(label)
+
+          return (
+            <g
+              key={`route-label-${label.componentId}`}
+              className={
                 label.isCurrent
-                  ? "rgba(214,204,236,0.42)"
-                  : "rgba(192,182,214,0.22)"
+                  ? "globe-floating-label globe-floating-label-pulse"
+                  : "globe-floating-label"
               }
-              strokeWidth="0.32"
-            />
-            <text
-              x={label.x}
-              y={label.y + 0.72}
-              fill="#FFFFFF"
-              fontSize="2.12"
-              fontWeight="600"
-              paintOrder="stroke"
-              stroke="rgba(5,5,10,0.82)"
-              strokeWidth="0.46"
-              textAnchor="middle"
+              onClick={() => onSelectNode(label.componentId)}
+              onPointerEnter={() => onHoverNode(label.manufacturerId)}
+              onPointerLeave={() => onHoverNode(null)}
+              style={{ cursor: "pointer" }}
             >
-              {label.label}
-            </text>
-          </g>
-        ))}
+              {leaderPath ? (
+                <>
+                  <path
+                    d={leaderPath}
+                    fill="none"
+                    stroke={
+                      label.isCurrent ? palette.glowStrong : palette.glowMedium
+                    }
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={0.34}
+                  />
+                  <circle
+                    cx={label.routeX}
+                    cy={label.routeY}
+                    r={0.48}
+                    className={
+                      label.isCurrent ? "globe-floating-label-dot" : undefined
+                    }
+                    fill={
+                      label.isCurrent
+                        ? palette.pulseStrong
+                        : palette.pulseMedium
+                    }
+                    stroke={
+                      label.isCurrent ? palette.coreStrong : palette.coreSoft
+                    }
+                    strokeWidth={0.12}
+                  />
+                </>
+              ) : null}
+              <rect
+                x={label.x - label.width / 2}
+                y={label.y - label.height / 2}
+                width={label.width}
+                height={label.height}
+                rx={label.height / 2}
+                fill={
+                  label.isCurrent ? "rgba(46,39,61,0.86)" : "rgba(22,19,30,0.9)"
+                }
+                stroke={
+                  label.isCurrent
+                    ? "rgba(214,204,236,0.42)"
+                    : "rgba(192,182,214,0.22)"
+                }
+                strokeWidth="0.32"
+              />
+              <text
+                x={label.x}
+                y={label.y + 0.72}
+                fill="#FFFFFF"
+                fontSize="2.12"
+                fontWeight="600"
+                paintOrder="stroke"
+                stroke="rgba(5,5,10,0.82)"
+                strokeWidth="0.46"
+                textAnchor="middle"
+              >
+                {label.label}
+              </text>
+            </g>
+          )
+        })}
       </svg>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
