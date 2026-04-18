@@ -297,6 +297,10 @@
     pointer-events: none;
   }
 
+  .landing-intro.is-revealing {
+    background: transparent;
+  }
+
   .landing-intro__content {
     position: absolute;
     inset: 0;

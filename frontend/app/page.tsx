@@ -292,7 +292,10 @@ function LandingIntro({
   return (
     <div
       aria-hidden
-      className="landing-intro fixed inset-0 z-[100] select-none"
+      className={cn(
+        "landing-intro fixed inset-0 z-[100] select-none",
+        wipePanels && "is-revealing",
+      )}
     >
       <div
         className={cn("landing-intro__content", fadeCounter && "is-hidden")}
