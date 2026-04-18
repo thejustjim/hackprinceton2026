@@ -42,7 +42,7 @@ DEFAULT_WEIGHTS = {
 }
 
 
-def _parse_agent_output(raw: str | list | dict) -> list[dict[str, Any]]:
+def parse_agent_output(raw: str | list | dict) -> list[dict[str, Any]]:
     """Coerce the Dedalus agent output into a list of manufacturer dicts."""
     if isinstance(raw, list):
         return raw
@@ -60,7 +60,7 @@ def _parse_agent_output(raw: str | list | dict) -> list[dict[str, Any]]:
     # Try direct JSON first.
     try:
         parsed = json.loads(text)
-        return _parse_agent_output(parsed)
+        return parse_agent_output(parsed)
     except json.JSONDecodeError:
         pass
 
@@ -102,7 +102,7 @@ def compute_composite_scores(
     Returns a list sorted by composite score (lower = better) with per-
     manufacturer rank, env_rating bucket, and normalised sub-scores.
     """
-    manufacturers = _parse_agent_output(raw_results)
+    manufacturers = parse_agent_output(raw_results)
     if not manufacturers:
         return []
 

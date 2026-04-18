@@ -63,11 +63,18 @@ with this exact schema:
 
 def _build_per_country_prompt(
     *, product, countries, destination, transport_mode,
-    naics_hint, total_weight_kg, per_country, cert_clause,
+    naics_hint, total_weight_kg, per_country, cert_clause, product_context,
 ) -> str:
+    product_context_clause = (
+        f'This search is for the component/material "{product}" used in the finished product "{product_context}".'
+        if product_context
+        else ""
+    )
     return f"""
 You are a supply chain researcher. Research manufacturers of "{product}" in
 these countries: {', '.join(countries)}.
+
+{product_context_clause}
 
 {_TOOL_MENU}
 
@@ -108,13 +115,20 @@ For EACH country:
 
 def _build_global_prompt(
     *, product, destination, transport_mode,
-    naics_hint, total_weight_kg, target_count, cert_clause,
+    naics_hint, total_weight_kg, target_count, cert_clause, product_context,
 ) -> str:
+    product_context_clause = (
+        f'This search is for the component/material "{product}" used in the finished product "{product_context}".'
+        if product_context
+        else ""
+    )
     return f"""
 You are a supply chain researcher. Find the {target_count} most relevant
 manufacturers of "{product}" anywhere in the WORLD — pick whichever countries
 make the most sense. Aim for geographic diversity (don't put them all in one
 country) and prefer manufacturers that publish sustainability information.
+
+{product_context_clause}
 
 {_TOOL_MENU}
 
@@ -153,6 +167,8 @@ async def run_supply_chain_research(
     destination: str,
     transport_mode: str,
     require_certifications: list[str] | None = None,
+    product_context: str | None = None,
+    shipment_weight_kg: float | None = None,
     target_count: int | None = None,
 ) -> str:
     """
@@ -181,7 +197,12 @@ async def run_supply_chain_research(
 
     naics_hint = infer_naics(product)
     # 0.5 kg/unit is a reasonable default for mixed hardgoods.
-    total_weight_kg = max(1.0, float(quantity) * 0.5)
+    total_weight_kg = max(
+        1.0,
+        shipment_weight_kg
+        if shipment_weight_kg is not None
+        else float(quantity) * 0.5,
+    )
 
     if countries:
         per_country = (
@@ -194,6 +215,7 @@ async def run_supply_chain_research(
             destination=destination, transport_mode=transport_mode,
             naics_hint=naics_hint, total_weight_kg=total_weight_kg,
             per_country=per_country, cert_clause=cert_clause,
+            product_context=product_context,
         )
     else:
         prompt = _build_global_prompt(
@@ -202,6 +224,7 @@ async def run_supply_chain_research(
             total_weight_kg=total_weight_kg,
             target_count=target_count or 6,
             cert_clause=cert_clause,
+            product_context=product_context,
         )
 
     response = await runner.run(

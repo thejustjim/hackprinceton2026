@@ -10,7 +10,20 @@ export interface SearchWeights {
   climate_risk: number
 }
 
+export interface ScenarioComponentSearchRequest {
+  component: string
+  current_certifications?: string[]
+  current_city?: string | null
+  current_country: string
+  current_disclosure_status?: "verified" | "partial" | "none"
+  current_manufacturer: string
+  current_renewable_pct?: number | null
+  current_revenue_usd_m?: number | null
+  current_website?: string | null
+}
+
 export interface SearchRequest {
+  components?: ScenarioComponentSearchRequest[]
   product: string
   quantity: number
   destination: string
@@ -22,6 +35,7 @@ export interface SearchRequest {
 }
 
 export interface ManufacturerResult {
+  component?: string
   rank: number
   name: string
   country: string
@@ -31,12 +45,14 @@ export interface ManufacturerResult {
   composite_score: number
   env_rating: EnvRating
   disclosure_status: DisclosureStatus
+  is_current?: boolean
   transport_mode: string
   scores: {
     manufacturing_tco2e: number
     transport_tco2e: number
     grid_carbon_gco2_kwh: number
     cert_score: number
+    climate_risk_score?: number
     total_tco2e: number
   }
   rank_scores: {
@@ -44,6 +60,7 @@ export interface ManufacturerResult {
     transport_norm: number
     grid_norm: number
     cert_norm: number
+    risk_norm?: number
   }
   emission_factor: {
     q10_tco2e: number
@@ -67,7 +84,7 @@ export interface ManufacturerResult {
     multiplier: number
     cert_score: number
     matched_certs: string[]
-    disclosure_penalty: number
+    disclosure_penalty: boolean
   }
 }
 
@@ -81,8 +98,7 @@ export interface SearchResponse {
   results: ManufacturerResult[]
 }
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+export const API_BASE_URL = "/api"
 
 export async function getHealth(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE_URL}/health`)
@@ -100,10 +116,17 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
   })
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText)
-    throw new Error(
-      `Search failed (${response.status}): ${detail || response.statusText}`
-    )
+    const text = await response.text().catch(() => response.statusText)
+    let detail = text || response.statusText
+    try {
+      const parsed = JSON.parse(text) as { detail?: string | { msg: string }[] }
+      if (typeof parsed.detail === "string") {
+        detail = parsed.detail
+      }
+    } catch {
+      /* keep raw body */
+    }
+    throw new Error(`Search failed (${response.status}): ${detail}`)
   }
 
   return response.json()

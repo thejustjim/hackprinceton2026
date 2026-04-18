@@ -9,16 +9,19 @@ import {
 interface DashboardPageProps {
   searchParams: Promise<{
     demo?: string
+    handoff?: string
   }>
 }
 
 export default async function Page({ searchParams }: DashboardPageProps) {
   const params = await searchParams
   const cookieStore = await cookies()
+  const isHandoff = params.handoff === "1"
   const startsInDemo =
-    params.demo === "1" ||
-    cookieStore.get(DASHBOARD_ENTRY_COOKIE)?.value ===
-      DASHBOARD_ENTRY_MODE_DEMO
+    !isHandoff &&
+    (params.demo === "1" ||
+      cookieStore.get(DASHBOARD_ENTRY_COOKIE)?.value ===
+        DASHBOARD_ENTRY_MODE_DEMO)
 
-  return <DashboardPage startsInDemo={startsInDemo} />
+  return <DashboardPage isHandoff={isHandoff} startsInDemo={startsInDemo} />
 }

@@ -188,11 +188,11 @@ export function UploadPanel({
             Upload
           </p>
           <p className="mt-1 text-sm font-medium text-white/85">
-            Upload a CSV of your current product &amp; supplier
+            Upload a scenario CSV with one current supplier per component
           </p>
           <p className="mt-1 text-xs text-white/48">
-            Required columns: product, destination, quantity,
-            current_manufacturer, current_country. One data row only.
+            Required columns: product, quantity, destination, component,
+            current_manufacturer, current_country. One row per component.
           </p>
         </div>
         {status === "error" ? (
@@ -279,7 +279,7 @@ export function UploadPanel({
               Drop a CSV here, or click to browse
             </p>
             <p className="text-xs text-white/48">
-              Single-row CSV · triggers a live backend search
+              Multi-row scenario CSV · triggers a live component search
             </p>
           </>
         )}
