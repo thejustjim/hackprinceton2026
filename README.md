@@ -1,22 +1,36 @@
 # GreenChain
 
-Starter scaffold aligned to the HackPrinceton brief: a React + TypeScript frontend and a FastAPI backend that already match the product's core workflow.
+Environmental supply chain comparator. Submit a product + source countries + transport mode; get a ranked list of real manufacturers scored across multiple environmental dimensions (manufacturing emissions, transport CO2, grid carbon, certifications, climate risk).
 
 ## Structure
 
 ```text
-frontend/   Vite + React + TypeScript UI scaffold
-backend/    FastAPI API scaffold with mock search/results/memo routes
+frontend/   Next.js dashboard (globe view, supply chain graph, prompt bar)
+backend/    FastAPI + Dedalus agent + XGBoost ML scoring
+            └── ml_runtime/   Vendored XGBoost models + reference data (~9 MB)
 ```
 
-## What is scaffolded
+## Backend setup
 
-- Search form for product, quantity, destination, countries, transport mode, and certification filters
-- Live status feed wired to a Server-Sent Events endpoint
-- Supply chain graph panel placeholder for the D3 view
-- World map panel placeholder for the Leaflet view
-- Ranked results panel and recommendation memo hook
-- FastAPI routes for `/api/search`, `/api/results/{id}`, `/api/stream/{id}`, and `/api/memo`
+```bash
+cd backend
+cp .env.example .env       # then fill in your API keys
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cd ..                      # run uvicorn from repo root so the `backend.*` package resolves
+uvicorn backend.main:app --reload --port 8000
+```
+
+Open `http://localhost:8000/docs` for the interactive Swagger UI.
+
+### Required keys (in `backend/.env`)
+
+| Key | Where to get it |
+|-----|-----------------|
+| `DEDALUS_API_KEY` | https://dedaluslabs.ai |
+| `ANTHROPIC_API_KEY` | https://console.anthropic.com |
+| `BRAVE_API_KEY` | https://api.search.brave.com/app/keys (free tier: 2k queries/month) |
 
 ## Frontend setup
 
@@ -26,36 +40,44 @@ npm install
 npm run dev
 ```
 
-The frontend runs on `http://localhost:5173`.
+The frontend runs on `http://localhost:3000` and calls the backend at `http://localhost:8000`.
 
-If needed, point it at a different API:
+## Backend API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET    | `/health`            | Liveness probe |
+| POST   | `/search`            | Run Dedalus agent + ML scoring, return ranked manufacturers |
+| POST   | `/score`             | Score pre-collected candidates (skip the agent call) |
+| POST   | `/rescore-transport` | Recompute transport emissions under a different mode |
+
+### Example request
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8000 npm run dev
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product": "cotton t-shirts",
+    "quantity": 10000,
+    "destination": "US",
+    "countries": ["CN", "PT", "BD"],
+    "transport_mode": "sea",
+    "target_count": 9
+  }'
 ```
 
-## Backend setup
+Two modes:
+- **Per-country:** pass a non-empty `countries` array. Agent finds manufacturers in each.
+- **Global:** pass `countries: []`. Agent picks countries itself, biased toward geographic diversity.
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+## ML pipeline
 
-The backend runs on `http://localhost:8000`.
+- **Manufacturing emissions:** XGBoost quantile regression (q10/q50/q90) trained on USEEIO v1.3 (1,016 NAICS codes), Ember Climate (179 countries grid carbon), ND-GAIN (167 countries climate risk).
+- **Transport emissions:** GLEC framework factors × shipment weight × port-distance lookup.
+- **Composite score:** Normalised 0-100 across 5 dimensions with adjustable weights.
 
-## Current API
+Models live under `backend/ml_runtime/models/` and are loaded once at FastAPI startup.
 
-- `GET /api/health`
-- `POST /api/search`
-- `GET /api/results/{search_id}`
-- `GET /api/stream/{search_id}`
-- `POST /api/memo`
+## Sponsor track
 
-## Next build steps
-
-1. Replace mock backend scoring in `backend/app/service.py` with real agent, lookup-table, and model pipelines.
-2. Swap the graph and map placeholders for D3 and React-Leaflet implementations.
-3. Add SQLite caching and a real PDF export path for the memo flow.
+Built for HackPrinceton Spring 2026, **"Best agent swarm hosted on Dedalus Containers"** (Dedalus track).
