@@ -64,6 +64,7 @@ with this exact schema:
 def _build_per_country_prompt(
     *, product, countries, destination, transport_mode,
     naics_hint, total_weight_kg, per_country, cert_clause, product_context,
+    current_manufacturer, min_alternatives, retry_guidance,
 ) -> str:
     product_context_clause = (
         f'This search is for the component/material "{product}" used in the finished product "{product_context}".'
@@ -77,6 +78,14 @@ these countries: {', '.join(countries)}.
 {product_context_clause}
 
 {_TOOL_MENU}
+
+You must return at least {min_alternatives} ALTERNATIVE manufacturers that are
+not the incumbent supplier "{current_manufacturer}".
+Do not return "{current_manufacturer}" unless it is impossible to identify any
+alternatives after exhaustive searching.
+Every returned manufacturer must be a distinct company, not a duplicate brand,
+division, or alias of another returned result.
+{retry_guidance}
 
 For EACH country:
   1. Call web_search with queries like
@@ -116,6 +125,7 @@ For EACH country:
 def _build_global_prompt(
     *, product, destination, transport_mode,
     naics_hint, total_weight_kg, target_count, cert_clause, product_context,
+    current_manufacturer, min_alternatives, retry_guidance,
 ) -> str:
     product_context_clause = (
         f'This search is for the component/material "{product}" used in the finished product "{product_context}".'
@@ -132,13 +142,25 @@ country) and prefer manufacturers that publish sustainability information.
 
 {_TOOL_MENU}
 
+You must return at least {min_alternatives} ALTERNATIVE manufacturers that are
+not the incumbent supplier "{current_manufacturer}".
+Do not return "{current_manufacturer}" unless it is impossible to identify any
+alternatives after exhaustive searching.
+Every returned manufacturer must be a distinct company, not a duplicate brand,
+division, or alias of another returned result.
+If the first search wave is thin, broaden queries with synonyms, e.g.
+"producer", "converter", "industrial supplier", material-specific phrases,
+and country/region terms.
+{retry_guidance}
+
 Workflow:
-  1. Run 2-3 broad web_search queries to find candidate manufacturers globally.
+  1. Run at least 4 broad web_search queries to find candidate manufacturers globally.
      Examples: "{product} manufacturer sustainability",
      "{product} top exporter country", "ethical {product} factory".
      Ignore directory/aggregator sites (alibaba, thomasnet, panjiva).
-  2. Pick {target_count} real manufacturers, ideally from {target_count}
-     different countries.
+  2. Pick up to {target_count} real manufacturers, ideally from different countries.
+     Do not stop after finding one valid company; continue until you have found
+     at least {min_alternatives} alternatives or have exhausted credible search leads.
   3. For each manufacturer, optionally fetch_url their main site or
      sustainability page to extract certifications. If fetch_url returns
      "FETCH_FAILED", just skip it.
@@ -170,6 +192,9 @@ async def run_supply_chain_research(
     product_context: str | None = None,
     shipment_weight_kg: float | None = None,
     target_count: int | None = None,
+    current_manufacturer: str | None = None,
+    min_alternatives: int = 1,
+    retry_guidance: str | None = None,
 ) -> str:
     """
     Kick off the Dedalus supply-chain research agent.
@@ -216,6 +241,9 @@ async def run_supply_chain_research(
             naics_hint=naics_hint, total_weight_kg=total_weight_kg,
             per_country=per_country, cert_clause=cert_clause,
             product_context=product_context,
+            current_manufacturer=current_manufacturer or "the incumbent supplier",
+            min_alternatives=min_alternatives,
+            retry_guidance=retry_guidance or "",
         )
     else:
         prompt = _build_global_prompt(
@@ -225,6 +253,9 @@ async def run_supply_chain_research(
             target_count=target_count or 6,
             cert_clause=cert_clause,
             product_context=product_context,
+            current_manufacturer=current_manufacturer or "the incumbent supplier",
+            min_alternatives=min_alternatives,
+            retry_guidance=retry_guidance or "",
         )
 
     response = await runner.run(
@@ -232,6 +263,7 @@ async def run_supply_chain_research(
         model=DEFAULT_MODEL,
         tools=DEDALUS_TOOLS,
         max_tokens=4096,
+        max_steps=14,
     )
 
     return response.final_output

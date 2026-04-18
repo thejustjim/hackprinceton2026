@@ -1,6 +1,6 @@
 {
   "scenario": {
-    "id": "scenario_lint_roller_live_001",
+    "id": "scenario_lint_roller_live_multicomponent_001",
     "productName": "Lint Roller",
     "quantity": 10000,
     "unit": "units",
@@ -18,17 +18,14 @@
       "baseType": "product",
       "label": "Lint Roller",
       "subtitle": "10,000 units",
-      "children": ["component_adhesive"]
+      "children": [
+        "component_adhesive",
+        "component_plastic",
+        "component_cardboard"
+      ]
     },
     {
-      "id": "component_adhesive",
-      "nodeKind": "base",
-      "baseType": "component",
-      "label": "Adhesive",
-      "children": ["mfr_adh_current", "mfr_adh_delo", "mfr_adh_nanpao"]
-    },
-    {
-      "id": "mfr_adh_current",
+      "id": "mfr_adhesive_1",
       "nodeKind": "manufacturer",
       "name": "AdhesiveCo",
       "component": "Adhesive",
@@ -42,65 +39,392 @@
       "ecoScore": 50,
       "gridCarbonScore": 50,
       "climateRiskScore": 28,
-      "transportEmissionsTco2e": 0.42,
+      "transportEmissionsTco2e": 0.14,
       "manufacturingEmissionsTco2e": {
-        "q10": 326.5,
-        "q50": 61.4,
-        "q90": 25.8
+        "q10": 276.4,
+        "q50": 61.3,
+        "q90": 23.4
       },
       "certifications": ["iso14001", "sbt_committed"]
     },
     {
-      "id": "mfr_adh_delo",
+      "id": "component_adhesive",
+      "nodeKind": "base",
+      "baseType": "component",
+      "label": "Adhesive",
+      "children": ["mfr_adhesive_1"]
+    },
+    {
+      "id": "mfr_plastic_1",
       "nodeKind": "manufacturer",
-      "name": "DELO Industrial Adhesives",
-      "component": "Adhesive",
+      "name": "Braskem",
+      "component": "Plastic",
+      "isCurrent": false,
+      "location": {
+        "country": "BR",
+        "city": "São Paulo",
+        "lat": -23.5558,
+        "lng": -46.6396
+      },
+      "ecoScore": 88,
+      "gridCarbonScore": 100,
+      "climateRiskScore": 49,
+      "transportEmissionsTco2e": 0.18,
+      "manufacturingEmissionsTco2e": {
+        "q10": 33.4,
+        "q50": 6.0,
+        "q90": 2.4
+      },
+      "certifications": ["iso14001", "cdp_a"]
+    },
+    {
+      "id": "mfr_plastic_2",
+      "nodeKind": "manufacturer",
+      "name": "Borealis",
+      "component": "Plastic",
+      "isCurrent": false,
+      "location": {
+        "country": "AT",
+        "city": "Vienna",
+        "lat": 48.2082,
+        "lng": 16.3738
+      },
+      "ecoScore": 86,
+      "gridCarbonScore": 93,
+      "climateRiskScore": 27,
+      "transportEmissionsTco2e": 0.15,
+      "manufacturingEmissionsTco2e": {
+        "q10": 66.0,
+        "q50": 11.9,
+        "q90": 4.4
+      },
+      "certifications": ["iso14001"]
+    },
+    {
+      "id": "mfr_plastic_3",
+      "nodeKind": "manufacturer",
+      "name": "BASF",
+      "component": "Plastic",
       "isCurrent": false,
       "location": {
         "country": "DE",
-        "city": "Windach",
-        "lat": 48.0667,
-        "lng": 11.0333
+        "city": "Ludwigshafen",
+        "lat": 49.4774,
+        "lng": 8.4452
       },
-      "ecoScore": 29,
-      "gridCarbonScore": 43,
-      "climateRiskScore": 24,
-      "transportEmissionsTco2e": 0.42,
+      "ecoScore": 73,
+      "gridCarbonScore": 54,
+      "climateRiskScore": 28,
+      "transportEmissionsTco2e": 0.14,
       "manufacturingEmissionsTco2e": {
         "q10": 326.5,
         "q50": 61.4,
         "q90": 25.8
       },
-      "certifications": ["iso14001", "emas"]
+      "certifications": ["iso14001", "science_based_targets_committed"]
     },
     {
-      "id": "mfr_adh_nanpao",
+      "id": "mfr_plastic_4",
       "nodeKind": "manufacturer",
-      "name": "Nanpao Resins Chemical Co.",
-      "component": "Adhesive",
+      "name": "Covestro",
+      "component": "Plastic",
       "isCurrent": false,
       "location": {
-        "country": "TW",
-        "city": "Tainan",
-        "lat": 22.9999,
-        "lng": 120.227
+        "country": "DE",
+        "city": "Leverkusen",
+        "lat": 51.0333,
+        "lng": 6.9833
+      },
+      "ecoScore": 73,
+      "gridCarbonScore": 54,
+      "climateRiskScore": 28,
+      "transportEmissionsTco2e": 0.14,
+      "manufacturingEmissionsTco2e": {
+        "q10": 326.5,
+        "q50": 61.4,
+        "q90": 25.8
+      },
+      "certifications": ["iso14001", "science_based_targets_committed"]
+    },
+    {
+      "id": "mfr_plastic_5",
+      "nodeKind": "manufacturer",
+      "name": "LG Chem",
+      "component": "Plastic",
+      "isCurrent": false,
+      "location": {
+        "country": "KR",
+        "city": "Seoul",
+        "lat": 37.5665,
+        "lng": 126.978
       },
       "ecoScore": 46,
-      "gridCarbonScore": 57,
-      "climateRiskScore": 34,
-      "transportEmissionsTco2e": 0.88,
+      "gridCarbonScore": 49,
+      "climateRiskScore": 33,
+      "transportEmissionsTco2e": 0.26,
       "manufacturingEmissionsTco2e": {
-        "q10": 673.9,
-        "q50": 121.2,
-        "q90": 42.3
+        "q10": 409.6,
+        "q50": 77.0,
+        "q90": 30.5
+      },
+      "certifications": ["iso14001", "science_based_targets_committed"]
+    },
+    {
+      "id": "mfr_plastic_6",
+      "nodeKind": "manufacturer",
+      "name": "SABIC",
+      "component": "Plastic",
+      "isCurrent": false,
+      "location": {
+        "country": "SA",
+        "city": "Riyadh",
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "ecoScore": 14,
+      "gridCarbonScore": 0,
+      "climateRiskScore": 53,
+      "transportEmissionsTco2e": 0.25,
+      "manufacturingEmissionsTco2e": {
+        "q10": 1118.8,
+        "q50": 224.1,
+        "q90": 89.3
+      },
+      "certifications": ["iso14001", "cdp_b"]
+    },
+    {
+      "id": "mfr_plastic_7",
+      "nodeKind": "manufacturer",
+      "name": "PolymerWorks",
+      "component": "Plastic",
+      "isCurrent": true,
+      "location": {
+        "country": "CN",
+        "city": "Shenzhen",
+        "lat": 22.5431,
+        "lng": 114.0579
+      },
+      "ecoScore": 4,
+      "gridCarbonScore": 20,
+      "climateRiskScore": 52,
+      "transportEmissionsTco2e": 0.27,
+      "manufacturingEmissionsTco2e": {
+        "q10": 1624.2,
+        "q50": 303.9,
+        "q90": 102.5
       },
       "certifications": ["iso14001"]
+    },
+    {
+      "id": "component_plastic",
+      "nodeKind": "base",
+      "baseType": "component",
+      "label": "Plastic",
+      "children": [
+        "mfr_plastic_1",
+        "mfr_plastic_2",
+        "mfr_plastic_3",
+        "mfr_plastic_4",
+        "mfr_plastic_5",
+        "mfr_plastic_6",
+        "mfr_plastic_7"
+      ]
+    },
+    {
+      "id": "mfr_cardboard_1",
+      "nodeKind": "manufacturer",
+      "name": "Mondi Group",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "AT",
+        "city": "Vienna",
+        "lat": 48.2082,
+        "lng": 16.3738
+      },
+      "ecoScore": 83,
+      "gridCarbonScore": 91,
+      "climateRiskScore": 27,
+      "transportEmissionsTco2e": 0.15,
+      "manufacturingEmissionsTco2e": {
+        "q10": 116.5,
+        "q50": 24.4,
+        "q90": 7.3
+      },
+      "certifications": ["iso14001", "cdp_a", "science_based_targets"]
+    },
+    {
+      "id": "mfr_cardboard_2",
+      "nodeKind": "manufacturer",
+      "name": "Klabin",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "BR",
+        "city": "São Paulo",
+        "lat": -23.5558,
+        "lng": -46.6396
+      },
+      "ecoScore": 79,
+      "gridCarbonScore": 100,
+      "climateRiskScore": 49,
+      "transportEmissionsTco2e": 0.18,
+      "manufacturingEmissionsTco2e": {
+        "q10": 58.1,
+        "q50": 10.9,
+        "q90": 4.0
+      },
+      "certifications": ["iso14001", "cdp_a", "science_based_targets"]
+    },
+    {
+      "id": "mfr_cardboard_3",
+      "nodeKind": "manufacturer",
+      "name": "International Paper",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "US",
+        "city": "Memphis",
+        "lat": 35.1495,
+        "lng": -90.049
+      },
+      "ecoScore": 60,
+      "gridCarbonScore": 46,
+      "climateRiskScore": 29,
+      "transportEmissionsTco2e": 0.0,
+      "manufacturingEmissionsTco2e": {
+        "q10": 633.3,
+        "q50": 139.9,
+        "q90": 42.4
+      },
+      "certifications": ["iso14001", "science_based_targets"]
+    },
+    {
+      "id": "mfr_cardboard_4",
+      "nodeKind": "manufacturer",
+      "name": "BoxFab",
+      "component": "Cardboard",
+      "isCurrent": true,
+      "location": {
+        "country": "MX",
+        "city": "Monterrey",
+        "lat": 25.6866,
+        "lng": -100.3161
+      },
+      "ecoScore": 49,
+      "gridCarbonScore": 31,
+      "climateRiskScore": 51,
+      "transportEmissionsTco2e": 0.09,
+      "manufacturingEmissionsTco2e": {
+        "q10": 465.6,
+        "q50": 108.5,
+        "q90": 29.6
+      },
+      "certifications": ["fsc", "iso14001"]
+    },
+    {
+      "id": "mfr_cardboard_5",
+      "nodeKind": "manufacturer",
+      "name": "Stora Enso",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "FI",
+        "city": "Helsinki",
+        "lat": 60.1699,
+        "lng": 24.9384
+      },
+      "ecoScore": 44,
+      "gridCarbonScore": 28,
+      "climateRiskScore": 50,
+      "transportEmissionsTco2e": 0.14,
+      "manufacturingEmissionsTco2e": {
+        "q10": 781.2,
+        "q50": 200.7,
+        "q90": 60.8
+      },
+      "certifications": ["iso14001", "cdp_a", "science_based_targets"]
+    },
+    {
+      "id": "mfr_cardboard_6",
+      "nodeKind": "manufacturer",
+      "name": "Smurfit Kappa",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "IE",
+        "city": "Dublin",
+        "lat": 53.3498,
+        "lng": -6.2603
+      },
+      "ecoScore": 19,
+      "gridCarbonScore": 28,
+      "climateRiskScore": 50,
+      "transportEmissionsTco2e": 0.27,
+      "manufacturingEmissionsTco2e": {
+        "q10": 781.2,
+        "q50": 200.7,
+        "q90": 60.8
+      },
+      "certifications": ["iso14001", "science_based_targets"]
+    },
+    {
+      "id": "mfr_cardboard_7",
+      "nodeKind": "manufacturer",
+      "name": "Nine Dragons Paper",
+      "component": "Cardboard",
+      "isCurrent": false,
+      "location": {
+        "country": "CN",
+        "city": "Dongguan",
+        "lat": 23.0207,
+        "lng": 113.7518
+      },
+      "ecoScore": 0,
+      "gridCarbonScore": 0,
+      "climateRiskScore": 52,
+      "transportEmissionsTco2e": 0.27,
+      "manufacturingEmissionsTco2e": {
+        "q10": 1661.8,
+        "q50": 291.4,
+        "q90": 115.1
+      },
+      "certifications": ["iso14001"]
+    },
+    {
+      "id": "component_cardboard",
+      "nodeKind": "base",
+      "baseType": "component",
+      "label": "Cardboard",
+      "children": [
+        "mfr_cardboard_1",
+        "mfr_cardboard_2",
+        "mfr_cardboard_3",
+        "mfr_cardboard_4",
+        "mfr_cardboard_5",
+        "mfr_cardboard_6",
+        "mfr_cardboard_7"
+      ]
     }
   ],
   "edges": [
     { "id": "e1", "source": "product_lint_roller", "target": "component_adhesive" },
-    { "id": "e2", "source": "component_adhesive", "target": "mfr_adh_current" },
-    { "id": "e3", "source": "component_adhesive", "target": "mfr_adh_delo" },
-    { "id": "e4", "source": "component_adhesive", "target": "mfr_adh_nanpao" }
+    { "id": "e2", "source": "component_adhesive", "target": "mfr_adhesive_1" },
+    { "id": "e3", "source": "product_lint_roller", "target": "component_plastic" },
+    { "id": "e4", "source": "component_plastic", "target": "mfr_plastic_1" },
+    { "id": "e5", "source": "component_plastic", "target": "mfr_plastic_2" },
+    { "id": "e6", "source": "component_plastic", "target": "mfr_plastic_3" },
+    { "id": "e7", "source": "component_plastic", "target": "mfr_plastic_4" },
+    { "id": "e8", "source": "component_plastic", "target": "mfr_plastic_5" },
+    { "id": "e9", "source": "component_plastic", "target": "mfr_plastic_6" },
+    { "id": "e10", "source": "component_plastic", "target": "mfr_plastic_7" },
+    { "id": "e11", "source": "product_lint_roller", "target": "component_cardboard" },
+    { "id": "e12", "source": "component_cardboard", "target": "mfr_cardboard_1" },
+    { "id": "e13", "source": "component_cardboard", "target": "mfr_cardboard_2" },
+    { "id": "e14", "source": "component_cardboard", "target": "mfr_cardboard_3" },
+    { "id": "e15", "source": "component_cardboard", "target": "mfr_cardboard_4" },
+    { "id": "e16", "source": "component_cardboard", "target": "mfr_cardboard_5" },
+    { "id": "e17", "source": "component_cardboard", "target": "mfr_cardboard_6" },
+    { "id": "e18", "source": "component_cardboard", "target": "mfr_cardboard_7" }
   ]
 }

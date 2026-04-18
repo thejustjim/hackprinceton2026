@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+MIN_COMPONENT_ALTERNATIVES = 1
+MAX_COMPONENT_SEARCH_ATTEMPTS = 3
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -472,27 +474,64 @@ async def _run_component_search(
     component_count: int,
 ) -> list[dict[str, Any]]:
     shipment_weight_kg = max(1.0, float(req.quantity) * 0.5 / max(component_count, 1))
+    incumbent_name = component.current_manufacturer.strip()
+    incumbent_country = component.current_country.strip().upper()
+    alternatives: list[dict[str, Any]] = []
 
-    raw_output = await run_supply_chain_research(
-        product=component.component,
-        product_context=req.product,
-        quantity=req.quantity,
-        countries=[],
-        destination=req.destination,
-        transport_mode=req.transport_mode,
-        require_certifications=req.require_certifications or None,
-        shipment_weight_kg=shipment_weight_kg,
-        target_count=req.target_count,
-    )
+    for attempt in range(1, MAX_COMPONENT_SEARCH_ATTEMPTS + 1):
+        retry_guidance = ""
+        if attempt > 1:
+            retry_guidance = (
+                f"This is retry attempt {attempt}. The previous search returned "
+                f"{len(alternatives)} usable alternatives. Broaden geography and "
+                "query wording, and keep searching until you find distinct alternatives."
+            )
 
-    alternatives = []
-    for manufacturer in parse_agent_output(raw_output):
-        next_manufacturer = {
-            **manufacturer,
-            "component": component.component,
-            "is_current": False,
-        }
-        alternatives.append(next_manufacturer)
+        raw_output = await run_supply_chain_research(
+            product=component.component,
+            product_context=req.product,
+            quantity=req.quantity,
+            countries=[],
+            destination=req.destination,
+            transport_mode=req.transport_mode,
+            require_certifications=req.require_certifications or None,
+            shipment_weight_kg=shipment_weight_kg,
+            target_count=max(req.target_count or 6, 6),
+            current_manufacturer=incumbent_name,
+            min_alternatives=MIN_COMPONENT_ALTERNATIVES,
+            retry_guidance=retry_guidance,
+        )
+
+        parsed_alternatives: list[dict[str, Any]] = []
+        for manufacturer in parse_agent_output(raw_output):
+            manufacturer_name = str(manufacturer.get("name") or "").strip()
+            manufacturer_country = str(manufacturer.get("country") or "").strip().upper()
+            if (
+                manufacturer_name.lower() == incumbent_name.lower()
+                and manufacturer_country == incumbent_country
+            ):
+                continue
+
+            parsed_alternatives.append(
+                {
+                    **manufacturer,
+                    "component": component.component,
+                    "is_current": False,
+                }
+            )
+
+        alternatives = _dedupe_manufacturers(parsed_alternatives)
+        if len(alternatives) >= MIN_COMPONENT_ALTERNATIVES:
+            break
+
+        logger.warning(
+            "component_search returned too few alternatives; retrying",
+            extra={
+                "component": component.component,
+                "attempt": attempt,
+                "alternatives": len(alternatives),
+            },
+        )
 
     current_manufacturer = _build_current_manufacturer(
         component=component,

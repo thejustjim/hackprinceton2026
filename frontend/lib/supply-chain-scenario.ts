@@ -180,12 +180,23 @@ const COUNTRY_NAMES: Record<string, string> = {
   US: "United States",
 }
 
-const DEFAULT_GRAPH_NODE_POSITIONS: Record<string, { x: number; y: number }> = {
-  product_lint_roller: { x: -55, y: -55 },
-  component_adhesive: { x: 260, y: -40 },
-  mfr_adh_current: { x: 560, y: -360 },
-  mfr_adh_delo: { x: 700, y: -20 },
-  mfr_adh_nanpao: { x: 560, y: 320 },
+function radialPosition(index: number, total: number, radius: number) {
+  if (total <= 0) return { x: 0, y: 0 }
+  const angle = (index / total) * Math.PI * 2 - Math.PI / 2
+  return {
+    x: Math.round(Math.cos(angle) * radius),
+    y: Math.round(Math.sin(angle) * radius),
+  }
+}
+
+function offsetPosition(
+  base: { x: number; y: number },
+  offset: { x: number; y: number }
+) {
+  return {
+    x: base.x + offset.x,
+    y: base.y + offset.y,
+  }
 }
 
 function normalizeLocation(location: RawLocation): SupplyScenarioLocation {
@@ -199,8 +210,7 @@ function normalizeLocation(location: RawLocation): SupplyScenarioLocation {
 }
 
 export function createSupplyScenario(
-  rawScenario: RawScenario,
-  graphPositions: Record<string, { x: number; y: number }>
+  rawScenario: RawScenario
 ): SupplyScenario {
   const rawProduct = rawScenario.nodes.find(
     (node): node is RawProductNode =>
@@ -237,7 +247,7 @@ export function createSupplyScenario(
         componentId,
         componentLabel: manufacturer.component,
         ecoScore: manufacturer.ecoScore,
-        graphPosition: graphPositions[manufacturer.id] ?? { x: 0, y: 0 },
+        graphPosition: { x: 0, y: 0 },
         gridCarbonScore: manufacturer.gridCarbonScore,
         id: manufacturer.id,
         isCurrent: manufacturer.isCurrent,
@@ -252,7 +262,7 @@ export function createSupplyScenario(
     manufacturers.map((manufacturer) => [manufacturer.id, manufacturer])
   )
   const components = rawComponents.map((component) => ({
-    graphPosition: graphPositions[component.id] ?? { x: 0, y: 0 },
+    graphPosition: { x: 0, y: 0 },
     id: component.id,
     kind: "component" as const,
     label: component.label,
@@ -262,7 +272,7 @@ export function createSupplyScenario(
   }))
   const product: SupplyScenarioProductNode = {
     childIds: rawProduct.children,
-    graphPosition: graphPositions[rawProduct.id] ?? { x: 0, y: 0 },
+    graphPosition: { x: -180, y: -180 },
     id: rawProduct.id,
     kind: "product",
     label: rawProduct.label,
@@ -273,6 +283,35 @@ export function createSupplyScenario(
     label: rawScenario.scenario.destination.city,
     location: normalizeLocation(rawScenario.scenario.destination),
   }
+
+  components.forEach((component, componentIndex) => {
+    const componentPosition = radialPosition(
+      componentIndex,
+      Math.max(components.length, 1),
+      Math.max(260, 140 + components.length * 70)
+    )
+    component.graphPosition = componentPosition
+
+    const componentManufacturers = component.manufacturerIds
+      .map((manufacturerId) => manufacturerById.get(manufacturerId))
+      .filter(
+        (
+          manufacturer
+        ): manufacturer is SupplyScenarioManufacturerNode => Boolean(manufacturer)
+      )
+    const ringRadius = Math.max(320, 120 + componentManufacturers.length * 52)
+
+    componentManufacturers.forEach((manufacturer, manufacturerIndex) => {
+      manufacturer.graphPosition = offsetPosition(
+        componentPosition,
+        radialPosition(
+          manufacturerIndex,
+          componentManufacturers.length,
+          ringRadius
+        )
+      )
+    })
+  })
   const graphNodes: SupplyScenarioGraphNode[] = [
     product,
     ...components,
@@ -322,6 +361,5 @@ export function createSupplyScenario(
 }
 
 export const sampleSupplyScenario = createSupplyScenario(
-  rawData as RawScenario,
-  DEFAULT_GRAPH_NODE_POSITIONS
+  rawData as RawScenario
 )
