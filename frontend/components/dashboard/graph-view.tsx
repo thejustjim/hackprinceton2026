@@ -16,6 +16,7 @@ interface GraphViewProps {
   onPromptChange: (value: string) => void
   onPromptSubmit: () => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  pinnedManufacturerByComponent: Record<string, string>
   promptError?: string | null
   promptPending?: boolean
   promptPlaceholder?: string
@@ -32,6 +33,7 @@ export function GraphView({
   onPromptChange,
   onPromptSubmit,
   onSelectNode,
+  pinnedManufacturerByComponent,
   promptError,
   promptPending,
   promptPlaceholder,
@@ -76,6 +78,7 @@ export function GraphView({
           hoveredNodeId={hoveredNodeId}
           onHoverNode={onHoverNode}
           onSelectNode={onSelectNode}
+          pinnedManufacturerByComponent={pinnedManufacturerByComponent}
           scenario={scenario}
           selectedNodeId={selectedNodeId}
         />
