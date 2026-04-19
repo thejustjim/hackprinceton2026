@@ -1240,6 +1240,14 @@ function runForceSimulationStep({
     const anchor = anchors.get(node.id) ?? node.position
     const mobility = getInteractiveMobility(node, draggedNodeId)
 
+    if (node.id === draggedNodeId) {
+      velocities.set(node.id, { x: 0, y: 0 })
+      return {
+        ...node,
+        position: { ...node.position },
+      }
+    }
+
     if (node.data.kind === "product") {
       velocities.set(node.id, { x: 0, y: 0 })
       return { ...node, position: { ...anchor } }
@@ -1327,7 +1335,6 @@ interface GraphEdgeElementRefs {
 }
 
 interface GraphRenderRefs {
-  ambientGlow: HTMLDivElement | null
   edges: Map<string, GraphEdgeElementRefs>
   grid: HTMLDivElement | null
   nodes: Map<string, HTMLDivElement>
@@ -1388,7 +1395,6 @@ function createEdgeElementRefs(): GraphEdgeElementRefs {
 
 function createRenderRefs(): GraphRenderRefs {
   return {
-    ambientGlow: null,
     edges: new Map(),
     grid: null,
     nodes: new Map(),
@@ -1705,7 +1711,7 @@ const ConnectionEdge = React.memo(
                   : 1.8
           }
           markerEnd={`url(#${markerId})`}
-          className={interactionMode ? undefined : "edge-draw"}
+          className="edge-draw"
           style={{
             animationDelay: `${drawDelay}s`,
             transition: "stroke 0.2s, stroke-width 0.2s",
@@ -1920,9 +1926,6 @@ export function SupplyChainGraph({
   )
   const setGridRef = useCallback((element: HTMLDivElement | null) => {
     renderRefsRef.current.grid = element
-  }, [])
-  const setAmbientGlowRef = useCallback((element: HTMLDivElement | null) => {
-    renderRefsRef.current.ambientGlow = element
   }, [])
   const setWorldRef = useCallback((element: HTMLDivElement | null) => {
     renderRefsRef.current.world = element
@@ -2206,18 +2209,6 @@ export function SupplyChainGraph({
       renderRefs.grid.style.backgroundPosition = `${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px`
     }
 
-    const productNode =
-      sceneNodeById.get(scenario.product.id) ?? layoutNodesRef.current[0]
-
-    if (renderRefs.ambientGlow && productNode) {
-      const productPosition =
-        positions.get(productNode.id) ?? productNode.position
-      const productSize = getNodeSize(productNode)
-
-      renderRefs.ambientGlow.style.left = `${paintedTransform.x + (productPosition.x + productSize.w / 2) * paintedTransform.scale - 300}px`
-      renderRefs.ambientGlow.style.top = `${paintedTransform.y + (productPosition.y + productSize.h / 2) * paintedTransform.scale - 300}px`
-    }
-
     renderedNodesRef.current.forEach((node) => {
       const element = renderRefs.nodes.get(node.id)
 
@@ -2273,7 +2264,7 @@ export function SupplyChainGraph({
         element.style.display = path ? "" : "none"
       })
     })
-  }, [sceneNodeById, scenario.product.id])
+  }, [])
 
   useEffect(() => {
     renderScene()
@@ -2312,11 +2303,7 @@ export function SupplyChainGraph({
 
       nextPositions.set(
         node.id,
-        node.data.kind === "product"
-          ? { ...node.position }
-          : previousPosition
-            ? { ...previousPosition }
-            : { ...node.position }
+        previousPosition ? { ...previousPosition } : { ...node.position }
       )
     })
 
@@ -2979,6 +2966,17 @@ export function SupplyChainGraph({
         }
       } else if (!activeDragState.moved) {
         onSelectNode(activeDragState.nodeId)
+      } else {
+        const droppedPosition = sceneNodePositionsRef.current.get(
+          activeDragState.nodeId
+        )
+
+        if (droppedPosition) {
+          layoutAnchorsRef.current.set(activeDragState.nodeId, {
+            ...droppedPosition,
+          })
+          velocitiesRef.current.set(activeDragState.nodeId, { x: 0, y: 0 })
+        }
       }
 
       sceneRef.current.dragState = null
@@ -3202,9 +3200,6 @@ export function SupplyChainGraph({
       "inset 0 1px 0 rgba(255,255,255,0.04), 0 18px 42px rgba(0,0,0,0.34)",
     overflow: "hidden" as const,
   }
-  const productNode = sceneNodeById.get(scenario.product.id) ?? layoutNodes[0]
-  const productNodePosition = productNode.position
-  const productNodeSize = getNodeSize(productNode)
   const paintedTransform = getPaintedTransform(DEFAULT_GRAPH_TRANSFORM)
 
   // Cursor
@@ -3266,12 +3261,6 @@ export function SupplyChainGraph({
           animation: node-breathe-sheen 11.4s ease-in-out infinite;
         }
 
-        @keyframes ambient-breathe {
-          0%, 100% { opacity: 0.22; }
-          50%       { opacity: 0.38; }
-        }
-        .ambient-breathe { animation: ambient-breathe 8.2s ease-in-out infinite; }
-
         @keyframes focus-beacon {
           0%, 100% { opacity: 0.42; transform: scaleX(1); }
           50% { opacity: 0.92; transform: scaleX(1.04); }
@@ -3320,7 +3309,6 @@ export function SupplyChainGraph({
           .edge-flow-subtle,
           .edge-flow-ambient,
           .edge-draw,
-          .ambient-breathe,
           .focus-beacon,
           .emblem-pulse,
           .panel-slide-in,
@@ -3344,29 +3332,31 @@ export function SupplyChainGraph({
         }}
       />
 
-      {/* Ambient radial glow at product node */}
       <div
-        ref={setAmbientGlowRef}
-        className={cn(
-          "pointer-events-none absolute",
-          !interactionMode ? "ambient-breathe" : ""
-        )}
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-28 -left-28 h-72 w-72 rounded-full opacity-65"
         style={{
-          left:
-            paintedTransform.x +
-            (productNodePosition.x + productNodeSize.w / 2) *
-              paintedTransform.scale -
-            300,
-          top:
-            paintedTransform.y +
-            (productNodePosition.y + productNodeSize.h / 2) *
-              paintedTransform.scale -
-            300,
-          width: 600,
-          height: 600,
           background:
-            "radial-gradient(circle, color-mix(in oklab, var(--primary) 11%, transparent) 0%, color-mix(in oklab, var(--primary) 2.5%, transparent) 48%, transparent 68%)",
-          borderRadius: "50%",
+            "radial-gradient(circle, color-mix(in oklab, var(--primary) 8%, transparent) 0%, color-mix(in oklab, var(--accent) 4%, transparent) 42%, transparent 74%)",
+          filter: "blur(26px)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-24 bottom-10 h-56 w-56 rounded-full opacity-42"
+        style={{
+          background:
+            "radial-gradient(circle, color-mix(in oklab, var(--accent) 6%, transparent) 0%, color-mix(in oklab, var(--primary) 3%, transparent) 48%, transparent 76%)",
+          filter: "blur(24px)",
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-8 bottom-6 h-40 w-40 rounded-full opacity-28"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 72%)",
+          filter: "blur(22px)",
         }}
       />
 

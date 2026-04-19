@@ -8,10 +8,12 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
 import { Button } from "@/components/ui/button"
 import {
+  LaggedHandleVisual,
+  LaggedPanelShell,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-  useSmoothedHandleIndicator,
+  useResizeMotion,
 } from "@/components/ui/resizable"
 import { getEcoDotStyles, getEcoSelectionStyles } from "@/lib/eco-visuals"
 import {
@@ -56,8 +58,8 @@ const GLOBE_SPLIT_ID = "dashboard-globe-split"
 const GLOBE_CANVAS_PANEL_ID = "dashboard-globe-canvas-panel"
 const GLOBE_ROUTES_PANEL_ID = "dashboard-globe-routes-panel"
 const GLOBE_SPLIT_DEFAULT = {
-  [GLOBE_CANVAS_PANEL_ID]: 62,
-  [GLOBE_ROUTES_PANEL_ID]: 38,
+  [GLOBE_CANVAS_PANEL_ID]: 66,
+  [GLOBE_ROUTES_PANEL_ID]: 34,
 }
 
 function getManufacturerForComponent(
@@ -559,9 +561,7 @@ export function GlobeView({
   selectedNodeId,
 }: GlobeViewProps) {
   const [isSplitLayout, setIsSplitLayout] = useState(false)
-  const [isGlobeSplitResizing, setIsGlobeSplitResizing] = useState(false)
   const globeSplitRef = useRef<HTMLDivElement>(null)
-  const globeResizeTimeoutRef = useRef<number | null>(null)
   const {
     defaultLayout: persistedGlobeLayout,
     onLayoutChanged: persistGlobeLayout,
@@ -571,23 +571,13 @@ export function GlobeView({
   })
   const {
     measure: measureGlobeHandleIndicator,
-    position: globeHandleIndicatorPosition,
-    targetPosition: globeHandleTargetPosition,
-  } = useSmoothedHandleIndicator(globeSplitRef)
+    active: isGlobeHandleActive,
+    lagOffset: globeHandleLagOffset,
+    onHandlePointerDownCapture: handleGlobeResizePointerDown,
+  } = useResizeMotion(globeSplitRef)
   const visibleRouteCount = scenario.components.filter(
     (component) => routeVisibleByComponent[component.id] ?? true
   ).length
-  const globeHandleLagOffset =
-    globeHandleIndicatorPosition && globeHandleTargetPosition
-      ? Math.max(
-          -4,
-          Math.min(
-            4,
-            globeHandleIndicatorPosition.y - globeHandleTargetPosition.y
-          )
-        )
-      : 0
-
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 768px)")
     const syncLayoutMode = () => setIsSplitLayout(mediaQuery.matches)
@@ -600,39 +590,17 @@ export function GlobeView({
     }
   }, [])
 
-  const stopGlobeResizeTracking = useCallback(() => {
-    if (globeResizeTimeoutRef.current !== null) {
-      window.clearTimeout(globeResizeTimeoutRef.current)
-      globeResizeTimeoutRef.current = null
-    }
-
-    setIsGlobeSplitResizing(false)
-  }, [])
-
   const handleGlobeLayoutChange = useCallback(() => {
-    setIsGlobeSplitResizing(true)
     measureGlobeHandleIndicator()
-
-    if (globeResizeTimeoutRef.current !== null) {
-      window.clearTimeout(globeResizeTimeoutRef.current)
-    }
-
-    globeResizeTimeoutRef.current = window.setTimeout(() => {
-      globeResizeTimeoutRef.current = null
-      setIsGlobeSplitResizing(false)
-    }, 180)
   }, [measureGlobeHandleIndicator])
 
   const handleGlobeLayoutChanged = useCallback(
     (layout: Record<string, number>) => {
       persistGlobeLayout(layout)
       measureGlobeHandleIndicator()
-      stopGlobeResizeTracking()
     },
-    [measureGlobeHandleIndicator, persistGlobeLayout, stopGlobeResizeTracking]
+    [measureGlobeHandleIndicator, persistGlobeLayout]
   )
-
-  useEffect(() => stopGlobeResizeTracking, [stopGlobeResizeTracking])
 
   useEffect(() => {
     if (!isSplitLayout) {
@@ -710,70 +678,75 @@ export function GlobeView({
               >
                 <ResizablePanel
                   id={GLOBE_CANVAS_PANEL_ID}
-                  className="min-h-0"
+                  className="min-h-0 overflow-visible"
                   minSize="18rem"
                 >
-                  <div className="h-full min-h-0 pr-1">
-                    <GlobeCanvasSection
-                      bestEcoManufacturerByComponent={
-                        bestEcoManufacturerByComponent
-                      }
-                      hoveredNodeId={hoveredNodeId}
-                      isSplitLayout={isSplitLayout}
-                      onHoverNode={onHoverNode}
-                      onSelectNode={onSelectNode}
-                      pinnedManufacturerByComponent={
-                        pinnedManufacturerByComponent
-                      }
-                      routeVisibleByComponent={routeVisibleByComponent}
-                      scenario={scenario}
-                      selectedNodeId={selectedNodeId}
-                      visibleRouteCount={visibleRouteCount}
-                    />
+                  <div className="h-full min-h-0 overflow-visible pr-1">
+                    <LaggedPanelShell
+                      edge="trailing"
+                      lagOffset={globeHandleLagOffset.y}
+                      orientation="horizontal"
+                    >
+                      <GlobeCanvasSection
+                        bestEcoManufacturerByComponent={
+                          bestEcoManufacturerByComponent
+                        }
+                        hoveredNodeId={hoveredNodeId}
+                        isSplitLayout={isSplitLayout}
+                        onHoverNode={onHoverNode}
+                        onSelectNode={onSelectNode}
+                        pinnedManufacturerByComponent={
+                          pinnedManufacturerByComponent
+                        }
+                        routeVisibleByComponent={routeVisibleByComponent}
+                        scenario={scenario}
+                        selectedNodeId={selectedNodeId}
+                        visibleRouteCount={visibleRouteCount}
+                      />
+                    </LaggedPanelShell>
                   </div>
                 </ResizablePanel>
-                <ResizableHandle className="my-1 h-3 rounded-full bg-transparent after:h-6 aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:after:h-6">
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "pointer-events-none flex h-full items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[width,background-color,box-shadow] duration-150",
-                      isGlobeSplitResizing ? "w-24 bg-white/[0.08]" : "w-16"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "block h-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[width,background-color,box-shadow,transform] duration-150",
-                        isGlobeSplitResizing ? "w-24 bg-white/[0.3]" : "w-16"
-                      )}
-                      style={{
-                        transform: `translateY(${globeHandleLagOffset}px)`,
-                      }}
-                    />
-                  </span>
+                <ResizableHandle
+                  className="my-1 h-3 rounded-full bg-transparent after:h-6 aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:after:h-6"
+                  onPointerDownCapture={handleGlobeResizePointerDown}
+                >
+                  <LaggedHandleVisual
+                    active={isGlobeHandleActive}
+                    introDelayMs={320}
+                    orientation="horizontal"
+                  />
                 </ResizableHandle>
                 <ResizablePanel
                   id={GLOBE_ROUTES_PANEL_ID}
-                  className="min-h-0"
+                  className="min-h-0 overflow-visible"
                   minSize="16rem"
                 >
-                  <div className="h-full min-h-0 overflow-y-auto pl-1">
-                    <RoutesList
-                      bestEcoManufacturerByComponent={
-                        bestEcoManufacturerByComponent
-                      }
-                      hoveredNodeId={hoveredNodeId}
-                      onHoverNode={onHoverNode}
-                      onSelectNode={onSelectNode}
-                      onToggleRouteCollapsed={onToggleRouteCollapsed}
-                      onToggleRouteVisible={onToggleRouteVisible}
-                      pinnedManufacturerByComponent={
-                        pinnedManufacturerByComponent
-                      }
-                      routeCollapsedByComponent={routeCollapsedByComponent}
-                      routeVisibleByComponent={routeVisibleByComponent}
-                      scenario={scenario}
-                      selectedNodeId={selectedNodeId}
-                    />
+                  <div className="h-full min-h-0 overflow-visible pl-1">
+                    <LaggedPanelShell
+                      edge="leading"
+                      lagOffset={globeHandleLagOffset.y}
+                      orientation="horizontal"
+                    >
+                      <div className="h-full min-h-0 overflow-y-auto">
+                        <RoutesList
+                          bestEcoManufacturerByComponent={
+                            bestEcoManufacturerByComponent
+                          }
+                          hoveredNodeId={hoveredNodeId}
+                          onHoverNode={onHoverNode}
+                          onSelectNode={onSelectNode}
+                          onToggleRouteCollapsed={onToggleRouteCollapsed}
+                          onToggleRouteVisible={onToggleRouteVisible}
+                          pinnedManufacturerByComponent={
+                            pinnedManufacturerByComponent
+                          }
+                          routeCollapsedByComponent={routeCollapsedByComponent}
+                          routeVisibleByComponent={routeVisibleByComponent}
+                          scenario={scenario}
+                          selectedNodeId={selectedNodeId}
+                        />
+                      </div>
+                    </LaggedPanelShell>
                   </div>
                 </ResizablePanel>
               </ResizablePanelGroup>

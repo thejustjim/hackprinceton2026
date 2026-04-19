@@ -1441,9 +1441,7 @@ export function InteractiveGlobe({
   const visibleRouteModels = useMemo(
     () =>
       Array.from(activeRouteByComponentId.entries())
-        .filter(
-          ([componentId]) => routeVisibleByComponent[componentId] ?? true
-        )
+        .filter(([componentId]) => routeVisibleByComponent[componentId] ?? true)
         .map(([, route]) => route),
     [activeRouteByComponentId, routeVisibleByComponent]
   )
@@ -1719,7 +1717,7 @@ export function InteractiveGlobe({
   return (
     <div
       className={cn(
-        "group relative aspect-square w-full max-w-[31rem] touch-none select-none md:max-w-[34rem]",
+        "group relative aspect-square w-full max-w-[34rem] touch-none select-none md:max-w-[37rem] xl:max-w-[39rem]",
         className
       )}
       onKeyDown={handleKeyDown}
@@ -1781,7 +1779,12 @@ export function InteractiveGlobe({
             <stop offset="86%" stopColor="rgba(10,15,18,0.22)" />
             <stop offset="100%" stopColor="rgba(0,0,0,0.3)" />
           </radialGradient>
-          <radialGradient id={`${clipPathId}-atmosphere`} cx="50%" cy="50%" r="50%">
+          <radialGradient
+            id={`${clipPathId}-atmosphere`}
+            cx="50%"
+            cy="50%"
+            r="50%"
+          >
             <stop offset="0%" stopColor="rgba(255,255,255,0)" />
             <stop offset="86%" stopColor="rgba(255,255,255,0)" />
             <stop offset="93%" stopColor={GLOBE_SURFACE_THEME.atmosphereHalo} />

@@ -22,10 +22,12 @@ import {
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { Button } from "@/components/ui/button"
 import {
+  LaggedHandleVisual,
+  LaggedPanelShell,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
-  useSmoothedHandleIndicator,
+  useResizeMotion,
 } from "@/components/ui/resizable"
 import {
   type SupplyScenario,
@@ -198,9 +200,10 @@ export function DashboardShell({
   })
   const {
     measure: measureDashboardHandleIndicator,
-    position: dashboardHandleIndicatorPosition,
-    targetPosition: dashboardHandleTargetPosition,
-  } = useSmoothedHandleIndicator(dashboardSplitRef)
+    active: isDashboardHandleActive,
+    lagOffset: dashboardHandleLagOffset,
+    onHandlePointerDownCapture: handleDashboardResizePointerDown,
+  } = useResizeMotion(dashboardSplitRef)
   const basePinnedManufacturerByComponent = useMemo(
     () => (scenario ? createPinnedManufacturerByComponent(scenario) : {}),
     [scenario]
@@ -473,17 +476,6 @@ export function DashboardShell({
     />
   ) : null
 
-  const dashboardHandleLagOffset =
-    dashboardHandleIndicatorPosition && dashboardHandleTargetPosition
-      ? Math.max(
-          -4,
-          Math.min(
-            4,
-            dashboardHandleIndicatorPosition.x - dashboardHandleTargetPosition.x
-          )
-        )
-      : 0
-
   return (
     <main className="dashboard-shell h-svh">
       <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:px-5">
@@ -644,36 +636,43 @@ export function DashboardShell({
               >
                 <ResizablePanel
                   id={DASHBOARD_GRAPH_PANEL_ID}
-                  className="min-h-0"
+                  className="min-h-0 overflow-visible"
                   minSize="35%"
                 >
-                  <div className="h-full min-h-0 pr-2">{graphPanel}</div>
+                  <div className="h-full min-h-0 overflow-visible pr-2">
+                    <LaggedPanelShell
+                      edge="trailing"
+                      lagOffset={dashboardHandleLagOffset.x}
+                      orientation="vertical"
+                    >
+                      {graphPanel}
+                    </LaggedPanelShell>
+                  </div>
                 </ResizablePanel>
-                <ResizableHandle className="mx-0.5 w-3 rounded-full bg-transparent after:w-6">
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "pointer-events-none flex w-full items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[height,background-color,box-shadow] duration-150",
-                      isDashboardResizing ? "h-24 bg-white/[0.08]" : "h-16"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "block w-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[height,background-color,box-shadow,transform] duration-150",
-                        isDashboardResizing ? "h-24 bg-white/[0.3]" : "h-16"
-                      )}
-                      style={{
-                        transform: `translateX(${dashboardHandleLagOffset}px)`,
-                      }}
-                    />
-                  </span>
+                <ResizableHandle
+                  className="mx-0.5 w-3 rounded-full bg-transparent after:w-6"
+                  onPointerDownCapture={handleDashboardResizePointerDown}
+                >
+                  <LaggedHandleVisual
+                    active={isDashboardHandleActive}
+                    introDelayMs={180}
+                    orientation="vertical"
+                  />
                 </ResizableHandle>
                 <ResizablePanel
                   id={DASHBOARD_GLOBE_PANEL_ID}
-                  className="min-h-0"
+                  className="min-h-0 overflow-visible"
                   minSize="30%"
                 >
-                  <div className="h-full min-h-0 pl-2">{globePanel}</div>
+                  <div className="h-full min-h-0 overflow-visible pl-2">
+                    <LaggedPanelShell
+                      edge="leading"
+                      lagOffset={dashboardHandleLagOffset.x}
+                      orientation="vertical"
+                    >
+                      {globePanel}
+                    </LaggedPanelShell>
+                  </div>
                 </ResizablePanel>
               </ResizablePanelGroup>
             </div>
