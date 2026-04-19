@@ -229,7 +229,7 @@ def make_scenario() -> SupplyScenarioPayload:
 
 
 class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
-    def test_normalize_edited_scenario_applies_safe_edits(self) -> None:
+    def test_normalize_edited_scenario_applies_real_filter_edits(self) -> None:
         original = make_scenario()
         candidate = original.model_copy(deep=True)
         candidate.title = "Widget Mk II"
@@ -238,12 +238,12 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         candidate.destination.label = "Detroit"
         candidate.destination.location.city = "Detroit"
         candidate.components[0].label = "Grip"
-        candidate.manufacturers[0].isCurrent = False
-        candidate.manufacturers[1].isCurrent = True
         candidate.manufacturers[1].name = "Better Alt Manufacturing"
         candidate.manufacturers[1].ecoScore = 19
-        candidate.manufacturers[1].graphPosition.x = 999
-        candidate.graph.nodes[2].position.x = 777
+        candidate.manufacturers[1].isCurrent = True
+        candidate.manufacturers = [candidate.manufacturers[1]]
+        candidate.components[0].manufacturerIds = ["mfr_alt"]
+        candidate.product.childIds = ["component_handle"]
         candidate.stats.graphNodeCount = 0
 
         normalized = normalize_edited_scenario(original, candidate)
@@ -253,21 +253,32 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(normalized.quantity, 5000)
         self.assertEqual(normalized.product.subtitle, "5,000 cases")
         self.assertEqual(normalized.components[0].label, "Grip")
-        self.assertEqual(normalized.manufacturers[1].componentLabel, "Grip")
-        self.assertEqual(normalized.manufacturers[1].name, "Better Alt Manufacturing")
-        self.assertTrue(normalized.manufacturers[1].isCurrent)
-        self.assertFalse(normalized.manufacturers[0].isCurrent)
-        self.assertEqual(normalized.manufacturers[1].graphPosition.x, 50)
-        self.assertEqual(normalized.graph.nodes[2].position.x, 30)
-        self.assertEqual(normalized.stats.graphNodeCount, 4)
+        self.assertEqual(normalized.manufacturers[0].componentLabel, "Grip")
+        self.assertEqual(len(normalized.manufacturers), 1)
+        self.assertEqual(normalized.manufacturers[0].id, "mfr_alt")
+        self.assertEqual(normalized.manufacturers[0].name, "Better Alt Manufacturing")
+        self.assertTrue(normalized.manufacturers[0].isCurrent)
+        self.assertEqual(normalized.components[0].manufacturerIds, ["mfr_alt"])
+        self.assertEqual(
+            [edge.id for edge in normalized.graph.edges],
+            [
+                "edge_product_widget_component_handle",
+                "edge_component_handle_mfr_alt",
+            ],
+        )
+        self.assertEqual(normalized.stats.graphNodeCount, 3)
+        self.assertEqual(normalized.stats.routeCount, 1)
         self.assertTrue(normalized.updatedAt.startswith("Edited "))
 
-    def test_normalize_edited_scenario_rejects_structural_changes(self) -> None:
+    def test_normalize_edited_scenario_rejects_inconsistent_component_membership(self) -> None:
         original = make_scenario()
         candidate = original.model_copy(deep=True)
-        candidate.graph.edges[0].targetId = "mfr_alt"
+        candidate.manufacturers = [candidate.manufacturers[1]]
+        candidate.components[0].manufacturerIds = ["mfr_current"]
 
-        with self.assertRaisesRegex(Exception, "Graph edges cannot be changed"):
+        with self.assertRaisesRegex(
+            Exception, "manufacturerIds must match its manufacturers in order"
+        ):
             normalize_edited_scenario(original, candidate)
 
     def test_get_k2think_settings_requires_api_key(self) -> None:
@@ -319,6 +330,62 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "applied")
         self.assertIsNotNone(result.scenario)
         self.assertEqual(result.scenario.title, "Edited Widget")
+
+    async def test_edit_scenario_with_k2_retries_invalid_json(self) -> None:
+        scenario = make_scenario()
+        candidate = scenario.model_copy(deep=True)
+        candidate.manufacturers = [candidate.manufacturers[1]]
+        candidate.manufacturers[0].isCurrent = True
+        candidate.components[0].manufacturerIds = ["mfr_alt"]
+
+        invalid_response = Mock()
+        invalid_response.raise_for_status.return_value = None
+        invalid_response.json.return_value = {
+            "choices": [{"message": {"content": "not-json"}}]
+        }
+
+        valid_response = Mock()
+        valid_response.raise_for_status.return_value = None
+        valid_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "status": "applied",
+                                "message": "Applied filter",
+                                "scenario_json": json.dumps(
+                                    candidate.model_dump(mode="json")
+                                ),
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "K2THINK_API_KEY": "test-key",
+                "K2THINK_MODEL": "MBZUAI-IFM/K2-Think-v2",
+            },
+            clear=False,
+        ):
+            with patch(
+                "httpx.AsyncClient.post",
+                new=AsyncMock(side_effect=[invalid_response, valid_response]),
+            ) as mock_post:
+                result = await edit_scenario_with_k2(
+                    "only keep China options", scenario
+                )
+
+        self.assertEqual(mock_post.await_count, 2)
+        self.assertEqual(result.status, "applied")
+        self.assertIsNotNone(result.scenario)
+        assert result.scenario is not None
+        self.assertEqual(len(result.scenario.manufacturers), 1)
+        self.assertEqual(result.scenario.manufacturers[0].id, "mfr_alt")
 
 
 if __name__ == "__main__":

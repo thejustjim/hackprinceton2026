@@ -82,7 +82,7 @@ function getManufacturerStatusStyles(isCurrent: boolean) {
       }
     : {
         badgeClassName:
-          "border border-emerald-400/22 bg-emerald-400/10 text-emerald-300",
+          "border border-slate-400/22 bg-slate-400/[0.08] text-slate-300/90",
       }
 }
 

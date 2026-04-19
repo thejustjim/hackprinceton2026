@@ -47,7 +47,7 @@ export function GraphView({
       )}
     >
       {/* Panel header */}
-      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+      <div className="flex flex-shrink-0 items-center gap-3 border-b border-white/[0.06] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <div
             className="h-2 w-2 rounded-full"
@@ -66,18 +66,6 @@ export function GraphView({
               {scenario.unit}
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="rounded-md border border-emerald-400/[0.15] bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-medium text-emerald-300/70">
-            Live
-          </span>
-          <span className="rounded-md border border-emerald-400/20 bg-emerald-400/[0.08] px-2 py-1 text-[10px] font-medium text-emerald-200/80">
-            Green edges = most sustainable
-          </span>
-          <span className="dashboard-chip-muted">
-            {scenario.stats.graphNodeCount} nodes ·{" "}
-            {scenario.stats.graphEdgeCount} edges
-          </span>
         </div>
       </div>
 

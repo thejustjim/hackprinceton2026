@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -170,21 +170,6 @@ class ScenarioEditValidationError(ValueError):
     pass
 
 
-def _strip_schema_annotations(value: Any) -> Any:
-    if isinstance(value, dict):
-        sanitized: dict[str, Any] = {}
-        for key, nested_value in value.items():
-            if key in {"title", "description", "default", "examples"}:
-                continue
-            sanitized[key] = _strip_schema_annotations(nested_value)
-        return sanitized
-
-    if isinstance(value, list):
-        return [_strip_schema_annotations(item) for item in value]
-
-    return value
-
-
 def _normalize_base_url(value: str | None) -> str:
     raw = (value or "https://api.k2think.ai/v1").strip().rstrip("/")
     if not raw:
@@ -224,81 +209,85 @@ def _non_empty(value: str, field_name: str) -> str:
     return normalized
 
 
-def _validate_structure(
-    original: SupplyScenarioPayload, candidate: SupplyScenarioPayload
-) -> None:
-    if candidate.id != original.id:
-        raise ScenarioEditValidationError("Scenario ID cannot be changed.")
+def _normalize_location(
+    location: SupplyScenarioLocationPayload, *, field_prefix: str
+) -> SupplyScenarioLocationPayload:
+    return location.model_copy(
+        update={
+            "city": _non_empty(location.city, f"{field_prefix} city"),
+            "country": _non_empty(location.country, f"{field_prefix} country"),
+            "countryCode": _non_empty(
+                location.countryCode, f"{field_prefix} country code"
+            ).upper(),
+        }
+    )
 
-    if candidate.product.id != original.product.id:
-        raise ScenarioEditValidationError("Product node ID cannot be changed.")
 
-    if candidate.destination.id != original.destination.id:
-        raise ScenarioEditValidationError("Destination ID cannot be changed.")
-
-    original_component_ids = [component.id for component in original.components]
-    candidate_component_ids = [component.id for component in candidate.components]
-    if candidate_component_ids != original_component_ids:
-        raise ScenarioEditValidationError(
-            "Components cannot be added, removed, or reordered."
-        )
-
-    original_manufacturer_ids = [
-        manufacturer.id for manufacturer in original.manufacturers
-    ]
-    candidate_manufacturer_ids = [
-        manufacturer.id for manufacturer in candidate.manufacturers
-    ]
-    if candidate_manufacturer_ids != original_manufacturer_ids:
-        raise ScenarioEditValidationError(
-            "Manufacturers cannot be added, removed, or reordered."
-        )
-
-    if candidate.product.childIds != original.product.childIds:
-        raise ScenarioEditValidationError(
-            "Product-to-component structure cannot be changed."
-        )
-
-    for original_component, candidate_component in zip(
-        original.components, candidate.components, strict=True
-    ):
-        if candidate_component.manufacturerIds != original_component.manufacturerIds:
-            raise ScenarioEditValidationError(
-                "Component manufacturer membership cannot be changed."
+def _rebuild_graph(
+    product: SupplyScenarioProductNodePayload,
+    components: list[SupplyScenarioComponentNodePayload],
+    manufacturers: list[SupplyScenarioManufacturerNodePayload],
+) -> SupplyScenarioGraphPayload:
+    graph_nodes = [
+        SupplyScenarioGraphNodePayload(
+            data=_build_graph_node_data(product),
+            id=product.id,
+            position=product.graphPosition,
+        ),
+        *[
+            SupplyScenarioGraphNodePayload(
+                data=_build_graph_node_data(component),
+                id=component.id,
+                position=component.graphPosition,
             )
-
-    for original_manufacturer, candidate_manufacturer in zip(
-        original.manufacturers, candidate.manufacturers, strict=True
-    ):
-        if candidate_manufacturer.componentId != original_manufacturer.componentId:
-            raise ScenarioEditValidationError(
-                "Manufacturer component assignments cannot be changed."
+            for component in components
+        ],
+        *[
+            SupplyScenarioGraphNodePayload(
+                data=_build_graph_node_data(manufacturer),
+                id=manufacturer.id,
+                position=manufacturer.graphPosition,
             )
+            for manufacturer in manufacturers
+        ],
+    ]
 
-    original_edges = [
-        (edge.id, edge.sourceId, edge.targetId) for edge in original.graph.edges
+    graph_edges = [
+        *[
+            SupplyScenarioGraphEdgePayload(
+                id=f"edge_{product.id}_{component.id}",
+                sourceId=product.id,
+                targetId=component.id,
+            )
+            for component in components
+        ],
+        *[
+            SupplyScenarioGraphEdgePayload(
+                id=f"edge_{manufacturer.componentId}_{manufacturer.id}",
+                sourceId=manufacturer.componentId,
+                targetId=manufacturer.id,
+            )
+            for manufacturer in manufacturers
+        ],
     ]
-    candidate_edges = [
-        (edge.id, edge.sourceId, edge.targetId) for edge in candidate.graph.edges
-    ]
-    if candidate_edges != original_edges:
-        raise ScenarioEditValidationError("Graph edges cannot be changed.")
 
-    original_routes = [
-        (route.id, route.componentId, route.destinationId, route.manufacturerId)
-        for route in original.routes
-    ]
-    candidate_routes = [
-        (route.id, route.componentId, route.destinationId, route.manufacturerId)
-        for route in candidate.routes
-    ]
-    if candidate_routes != original_routes:
-        raise ScenarioEditValidationError("Routes cannot be added or rewired.")
+    return SupplyScenarioGraphPayload(edges=graph_edges, nodes=graph_nodes)
 
-    original_graph_node_ids = [node.id for node in original.graph.nodes]
-    candidate_graph_node_ids = [node.id for node in candidate.graph.nodes]
-    if candidate_graph_node_ids != original_graph_node_ids:
-        raise ScenarioEditValidationError("Graph nodes cannot be added or removed.")
+
+def _rebuild_routes(
+    destination: SupplyScenarioDestinationPayload,
+    manufacturers: list[SupplyScenarioManufacturerNodePayload],
+) -> list[SupplyScenarioRoutePayload]:
+    return [
+        SupplyScenarioRoutePayload(
+            componentId=manufacturer.componentId,
+            destinationId=destination.id,
+            id=f"route_{manufacturer.id}",
+            isCurrent=manufacturer.isCurrent,
+            manufacturerId=manufacturer.id,
+        )
+        for manufacturer in manufacturers
+    ]
 
 
 def _build_graph_node_data(
@@ -348,152 +337,123 @@ def _build_graph_node_data(
 def normalize_edited_scenario(
     original: SupplyScenarioPayload, candidate: SupplyScenarioPayload
 ) -> SupplyScenarioPayload:
-    _validate_structure(original, candidate)
-
     title = _non_empty(candidate.title, "Scenario title")
     unit = _non_empty(candidate.unit, "Scenario unit")
     quantity = candidate.quantity
 
-    product = original.product.model_copy(
+    components = [
+        component.model_copy(update={"label": _non_empty(component.label, "Component label")})
+        for component in candidate.components
+    ]
+    component_ids = [component.id for component in components]
+    if not component_ids:
+        raise ScenarioEditValidationError("Scenario must contain at least one component.")
+    if len(component_ids) != len(set(component_ids)):
+        raise ScenarioEditValidationError("Component IDs must be unique.")
+
+    component_by_id = {component.id: component for component in components}
+
+    if len(candidate.product.childIds) != len(set(candidate.product.childIds)):
+        raise ScenarioEditValidationError("Product childIds must be unique.")
+    if candidate.product.childIds != component_ids:
+        raise ScenarioEditValidationError(
+            "Product childIds must match the component IDs in order."
+        )
+
+    product = candidate.product.model_copy(
         update={
             "label": _non_empty(candidate.product.label, "Product label"),
             "subtitle": _product_subtitle(quantity, unit),
         }
     )
 
-    normalized_components: list[SupplyScenarioComponentNodePayload] = []
-    component_label_by_id: dict[str, str] = {}
-    for original_component, candidate_component in zip(
-        original.components, candidate.components, strict=True
-    ):
-        label = _non_empty(candidate_component.label, "Component label")
-        component_label_by_id[original_component.id] = label
-        normalized_components.append(
-            original_component.model_copy(update={"label": label})
-        )
-
-    normalized_manufacturers: list[SupplyScenarioManufacturerNodePayload] = []
+    manufacturers: list[SupplyScenarioManufacturerNodePayload] = []
+    manufacturer_ids: list[str] = []
     current_count_by_component: dict[str, int] = {
-        component.id: 0 for component in original.components
+        component.id: 0 for component in components
     }
-    for original_manufacturer, candidate_manufacturer in zip(
-        original.manufacturers, candidate.manufacturers, strict=True
-    ):
-        component_label = component_label_by_id[original_manufacturer.componentId]
-        name = _non_empty(candidate_manufacturer.name, "Manufacturer name")
-        location = candidate_manufacturer.location.model_copy(
+
+    for manufacturer in candidate.manufacturers:
+        if manufacturer.componentId not in component_by_id:
+            raise ScenarioEditValidationError(
+                f"Manufacturer {manufacturer.id} references unknown component {manufacturer.componentId}."
+            )
+
+        component_label = component_by_id[manufacturer.componentId].label
+        normalized_manufacturer = manufacturer.model_copy(
             update={
-                "city": _non_empty(
-                    candidate_manufacturer.location.city, "Manufacturer city"
-                ),
-                "country": _non_empty(
-                    candidate_manufacturer.location.country, "Manufacturer country"
-                ),
-                "countryCode": _non_empty(
-                    candidate_manufacturer.location.countryCode,
-                    "Manufacturer country code",
-                ).upper(),
-            }
-        )
-        normalized_manufacturer = original_manufacturer.model_copy(
-            update={
-                "certifications": candidate_manufacturer.certifications,
-                "climateRiskScore": candidate_manufacturer.climateRiskScore,
+                "name": _non_empty(manufacturer.name, "Manufacturer name"),
                 "componentLabel": component_label,
-                "ecoScore": candidate_manufacturer.ecoScore,
-                "gridCarbonScore": candidate_manufacturer.gridCarbonScore,
-                "isCurrent": candidate_manufacturer.isCurrent,
-                "location": location,
-                "manufacturingEmissionsTco2e": candidate_manufacturer.manufacturingEmissionsTco2e,
-                "name": name,
-                "transportEmissionsTco2e": candidate_manufacturer.transportEmissionsTco2e,
+                "location": _normalize_location(
+                    manufacturer.location, field_prefix="Manufacturer"
+                ),
             }
         )
-        normalized_manufacturers.append(normalized_manufacturer)
+        manufacturers.append(normalized_manufacturer)
+        manufacturer_ids.append(normalized_manufacturer.id)
         if normalized_manufacturer.isCurrent:
             current_count_by_component[normalized_manufacturer.componentId] += 1
 
-    invalid_components = [
-        component_id
-        for component_id, current_count in current_count_by_component.items()
-        if current_count != 1
-    ]
-    if invalid_components:
-        raise ScenarioEditValidationError(
-            "Each component must have exactly one current manufacturer."
-        )
+    if not manufacturer_ids:
+        raise ScenarioEditValidationError("Scenario must contain at least one manufacturer.")
+    if len(manufacturer_ids) != len(set(manufacturer_ids)):
+        raise ScenarioEditValidationError("Manufacturer IDs must be unique.")
 
-    destination = original.destination.model_copy(
+    for component in components:
+        if len(component.manufacturerIds) != len(set(component.manufacturerIds)):
+            raise ScenarioEditValidationError(
+                f"Component {component.id} has duplicate manufacturerIds."
+            )
+
+        if not component.manufacturerIds:
+            raise ScenarioEditValidationError(
+                f"Component {component.id} must reference at least one manufacturer."
+            )
+
+        expected_ids = [
+            manufacturer.id
+            for manufacturer in manufacturers
+            if manufacturer.componentId == component.id
+        ]
+        if component.manufacturerIds != expected_ids:
+            raise ScenarioEditValidationError(
+                f"Component {component.id} manufacturerIds must match its manufacturers in order."
+            )
+
+        if current_count_by_component.get(component.id, 0) != 1:
+            raise ScenarioEditValidationError(
+                f"Component {component.id} must have exactly one current manufacturer."
+            )
+
+    destination = candidate.destination.model_copy(
         update={
             "label": _non_empty(candidate.destination.label, "Destination label"),
-            "location": candidate.destination.location.model_copy(
-                update={
-                    "city": _non_empty(
-                        candidate.destination.location.city, "Destination city"
-                    ),
-                    "country": _non_empty(
-                        candidate.destination.location.country, "Destination country"
-                    ),
-                    "countryCode": _non_empty(
-                        candidate.destination.location.countryCode,
-                        "Destination country code",
-                    ).upper(),
-                }
+            "location": _normalize_location(
+                candidate.destination.location, field_prefix="Destination"
             ),
         }
     )
 
-    normalized_routes = [
-        original_route.model_copy(
-            update={
-                "isCurrent": next(
-                    manufacturer.isCurrent
-                    for manufacturer in normalized_manufacturers
-                    if manufacturer.id == original_route.manufacturerId
-                )
-            }
-        )
-        for original_route in original.routes
-    ]
-
-    node_by_id: dict[str, Any] = {product.id: product}
-    node_by_id.update({component.id: component for component in normalized_components})
-    node_by_id.update(
-        {manufacturer.id: manufacturer for manufacturer in normalized_manufacturers}
-    )
-
-    normalized_graph_nodes = [
-        SupplyScenarioGraphNodePayload(
-            data=_build_graph_node_data(node_by_id[original_node.id]),
-            id=original_node.id,
-            position=node_by_id[original_node.id].graphPosition,
-        )
-        for original_node in original.graph.nodes
-    ]
-
-    graph = SupplyScenarioGraphPayload(
-        edges=original.graph.edges,
-        nodes=normalized_graph_nodes,
-    )
-
+    routes = _rebuild_routes(destination, manufacturers)
+    graph = _rebuild_graph(product, components, manufacturers)
     stats = SupplyScenarioStatsPayload(
-        componentCount=len(normalized_components),
-        currentRouteCount=sum(route.isCurrent for route in normalized_routes),
+        componentCount=len(components),
+        currentRouteCount=sum(route.isCurrent for route in routes),
         graphEdgeCount=len(graph.edges),
         graphNodeCount=len(graph.nodes),
-        routeCount=len(normalized_routes),
-        siteCount=len(normalized_manufacturers) + 1,
+        routeCount=len(routes),
+        siteCount=len(manufacturers) + 1,
     )
 
     return SupplyScenarioPayload(
-        components=normalized_components,
+        components=components,
         destination=destination,
         graph=graph,
         id=original.id,
-        manufacturers=normalized_manufacturers,
+        manufacturers=manufacturers,
         product=product,
         quantity=quantity,
-        routes=normalized_routes,
+        routes=routes,
         stats=stats,
         title=title,
         unit=unit,
@@ -511,12 +471,16 @@ def _build_edit_messages(prompt: str, scenario: SupplyScenarioPayload) -> list[d
             "role": "system",
             "content": (
                 "You edit a supply-chain scenario JSON document. "
-                "Allowed edits: scenario title, quantity, unit, destination label/location, "
-                "product/component/manufacturer labels, manufacturer metadata, scores, "
-                "certifications, location fields, and which existing manufacturer is current. "
-                "Do not add, remove, reorder, or rename IDs for nodes, routes, or edges. "
-                "Do not change graph topology, memberships, route wiring, or identifiers. "
-                "If the user's request requires structural changes, respond with status='rejected' "
+                "You may filter, remove, reorder, or relabel components and manufacturers "
+                "when needed to satisfy the user's request. "
+                "Preserve the top-level object shape and keep the scenario internally consistent. "
+                "Required consistency rules: product.childIds must exactly match the component IDs in order; "
+                "each component.manufacturerIds must exactly match the IDs of manufacturers belonging to that component in order; "
+                "every manufacturer.componentId must reference an existing component; "
+                "each component must end with exactly one current manufacturer; "
+                "destination/product/component/manufacturer labels and locations must be non-empty. "
+                "Graph/routes/stats will be rebuilt server-side, but still return a complete scenario JSON object. "
+                "If the user's request cannot be represented as scenario JSON, respond with status='rejected' "
                 "and explain why in message. If it can be safely applied, respond with "
                 "status='applied', a short message, and scenario_json containing the full "
                 "edited scenario JSON object serialized as a JSON string. "
@@ -544,87 +508,99 @@ async def edit_scenario_with_k2(
         "Content-Type": "application/json",
     }
 
-    request_body = {
-        "model": model,
-        "messages": _build_edit_messages(prompt, scenario),
-        "stream": False,
-        "temperature": 0.1,
-    }
+    messages = _build_edit_messages(prompt, scenario)
 
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                f"{base_url}/chat/completions",
-                headers=headers,
-                json=request_body,
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        detail = exc.response.text.strip()
-        raise ScenarioEditProviderError(
-            f"K2 Think request failed with {exc.response.status_code}: {detail or exc.response.reason_phrase}"
-        ) from exc
-    except httpx.HTTPError as exc:
-        raise ScenarioEditProviderError(
-            f"K2 Think request failed: {type(exc).__name__}: {exc}"
-        ) from exc
+    async with httpx.AsyncClient(timeout=60) as client:
+        parse_error: str | None = None
 
-    payload = response.json()
-    try:
-        content = payload["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise ScenarioEditProviderError(
-            "K2 Think response did not include a chat completion payload."
-        ) from exc
+        for attempt in range(1, 4):
+            request_body = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "temperature": 0.1,
+            }
 
-    if isinstance(content, list):
-        content = "".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict)
-        )
+            try:
+                response = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers=headers,
+                    json=request_body,
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                detail = exc.response.text.strip()
+                raise ScenarioEditProviderError(
+                    f"K2 Think request failed with {exc.response.status_code}: {detail or exc.response.reason_phrase}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise ScenarioEditProviderError(
+                    f"K2 Think request failed: {type(exc).__name__}: {exc}"
+                ) from exc
 
-    try:
-        decoded = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ScenarioEditProviderError(
-            "K2 Think did not return valid JSON for the scenario edit response."
-        ) from exc
+            payload = response.json()
+            try:
+                content = payload["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise ScenarioEditProviderError(
+                    "K2 Think response did not include a chat completion payload."
+                ) from exc
 
-    try:
-        model_output = ScenarioEditModelOutputPayload.model_validate(decoded)
-    except Exception as exc:  # noqa: BLE001
-        raise ScenarioEditProviderError(
-            f"K2 Think returned a response that did not match the expected shape: {exc}"
-        ) from exc
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict)
+                )
 
-    if model_output.status == "rejected":
-        return ScenarioEditResponsePayload(
-            message=model_output.message,
-            status="rejected",
-        )
+            try:
+                decoded = json.loads(content)
+                model_output = ScenarioEditModelOutputPayload.model_validate(decoded)
+                if model_output.status == "rejected":
+                    return ScenarioEditResponsePayload(
+                        message=model_output.message,
+                        status="rejected",
+                    )
 
-    if not model_output.scenario_json:
-        raise ScenarioEditProviderError(
-            "K2 Think returned an applied response without scenario_json."
-        )
+                if not model_output.scenario_json:
+                    raise ValueError(
+                        "K2 Think returned an applied response without scenario_json."
+                    )
 
-    try:
-        scenario_payload = json.loads(model_output.scenario_json)
-    except json.JSONDecodeError as exc:
-        raise ScenarioEditProviderError(
-            "K2 Think returned an invalid scenario_json payload."
-        ) from exc
+                scenario_payload = json.loads(model_output.scenario_json)
+                edited_scenario = SupplyScenarioPayload.model_validate(scenario_payload)
+            except (json.JSONDecodeError, ValueError) as exc:
+                parse_error = str(exc)
+            except Exception as exc:  # noqa: BLE001
+                parse_error = (
+                    "K2 Think returned a scenario payload that failed validation: "
+                    f"{exc}"
+                )
+            else:
+                return ScenarioEditResponsePayload(
+                    message=model_output.message,
+                    scenario=edited_scenario,
+                    status="applied",
+                )
 
-    try:
-        scenario = SupplyScenarioPayload.model_validate(scenario_payload)
-    except Exception as exc:  # noqa: BLE001
-        raise ScenarioEditProviderError(
-            f"K2 Think returned a scenario payload that failed validation: {exc}"
-        ) from exc
+            if attempt < 3:
+                messages = [
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": content if isinstance(content, str) else json.dumps(content),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response was invalid. "
+                            f"Problem: {parse_error}. "
+                            "Return only valid JSON matching the required response schema."
+                        ),
+                    },
+                ]
 
-    return ScenarioEditResponsePayload(
-        message=model_output.message,
-        scenario=scenario,
-        status="applied",
+    raise ScenarioEditProviderError(
+        "K2 Think failed to return valid JSON for the scenario edit response after 3 attempts."
+        + (f" Last error: {parse_error}" if parse_error else "")
     )

@@ -262,6 +262,23 @@ function projectGeoPoint(point: GlobeGeoPoint, rotation: RotationState) {
   return rotateVector(toVector(point), rotation)
 }
 
+/**
+ * Same projection as {@link projectGeoPoint}, with x/y/depth/radial rounded so
+ * SVG attributes match between SSR (Node) and the browser — unrounded trig can
+ * differ at the last binary digit and trigger hydration warnings.
+ */
+function projectGeoPointStable(point: GlobeGeoPoint, rotation: RotationState) {
+  const projected = projectGeoPoint(point, rotation)
+
+  return {
+    ...projected,
+    depth: roundForSvg(projected.depth),
+    radial: roundForSvg(projected.radial),
+    x: roundForSvg(projected.x),
+    y: roundForSvg(projected.y),
+  }
+}
+
 function wrapLongitude(value: number) {
   const wrapped = ((((value + 180) % 360) + 360) % 360) - 180
   return wrapped === -180 ? 180 : wrapped
@@ -1214,7 +1231,10 @@ export function InteractiveGlobe({
           id: manufacturer.id,
           isCurrent: manufacturer.isCurrent,
           location: manufacturer.location,
-          point: projectGeoPoint(toGeoPoint(manufacturer.location), rotation),
+          point: projectGeoPointStable(
+            toGeoPoint(manufacturer.location),
+            rotation
+          ),
           type: "manufacturer" as const,
         }))
         .filter((site) => site.point.visible)
@@ -1222,7 +1242,7 @@ export function InteractiveGlobe({
     [rotation, scenario.manufacturers]
   )
   const projectedDestination = useMemo(() => {
-    const point = projectGeoPoint(
+    const point = projectGeoPointStable(
       toGeoPoint(scenario.destination.location),
       rotation
     )

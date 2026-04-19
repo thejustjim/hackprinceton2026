@@ -79,11 +79,11 @@ function getManufacturerStatusPresentation(isCurrent: boolean) {
         pulseClassName: "bg-amber-300",
       }
     : {
-        badgeBackground: "rgba(52,211,153,0.1)",
-        badgeBorder: "rgba(52,211,153,0.22)",
-        badgeText: "#34D399",
+        badgeBackground: "rgba(148,163,184,0.1)",
+        badgeBorder: "rgba(148,163,184,0.24)",
+        badgeText: "#CBD5E1",
         label: "ALTERNATE",
-        pulseClassName: "bg-emerald-400",
+        pulseClassName: "bg-slate-400",
       }
 }
 
