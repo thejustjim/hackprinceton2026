@@ -13,8 +13,10 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   type SupplyScenario,
+  type SupplyScenarioComponentNode,
   type SupplyScenarioGraphEdge,
   type SupplyScenarioGraphNode,
+  type SupplyScenarioManufacturerNode,
   type SupplyScenarioSelectableNodeId,
 } from "@/lib/supply-chain-scenario"
 import { cn } from "@/lib/utils"
@@ -67,6 +69,163 @@ const CERT_LABELS: Record<string, string> = {
   iso14001: "ISO 14001",
   sbt: "SBT",
   cdp_a: "CDP A-List",
+}
+
+function formatCount(value: number) {
+  return value.toLocaleString()
+}
+
+function formatScore(value: number) {
+  return `${Math.round(value)}/100`
+}
+
+function formatTco2e(value: number) {
+  return `${value.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: value > 0 && value < 10 ? 1 : 0,
+  })} tCO2e`
+}
+
+function getEstimatedRouteTotalTco2e(
+  manufacturer: SupplyScenarioManufacturerNode
+) {
+  return (
+    manufacturer.manufacturingEmissionsTco2e.q50 +
+    manufacturer.transportEmissionsTco2e
+  )
+}
+
+function getCurrentManufacturer(
+  manufacturers: SupplyScenarioManufacturerNode[]
+) {
+  return (
+    manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
+    manufacturers[0] ??
+    null
+  )
+}
+
+function getBestEcoManufacturer(
+  manufacturers: SupplyScenarioManufacturerNode[],
+  bestEcoManufacturerId?: string
+) {
+  return (
+    manufacturers.find(
+      (manufacturer) => manufacturer.id === bestEcoManufacturerId
+    ) ??
+    manufacturers.reduce<SupplyScenarioManufacturerNode | null>(
+      (best, manufacturer) => {
+        if (!best || manufacturer.ecoScore < best.ecoScore) {
+          return manufacturer
+        }
+
+        if (
+          manufacturer.ecoScore === best.ecoScore &&
+          manufacturer.isCurrent &&
+          !best.isCurrent
+        ) {
+          return manufacturer
+        }
+
+        return best
+      },
+      null
+    )
+  )
+}
+
+function getSelectedManufacturer(
+  manufacturers: SupplyScenarioManufacturerNode[],
+  pinnedManufacturerId?: string
+) {
+  return (
+    manufacturers.find((manufacturer) => manufacturer.id === pinnedManufacturerId) ??
+    getCurrentManufacturer(manufacturers)
+  )
+}
+
+function DrawerMetricCard({
+  label,
+  sublabel,
+  value,
+}: {
+  label: string
+  sublabel?: string
+  value: string
+}) {
+  return (
+    <div
+      className="dashboard-drawer-section rounded-lg p-2.5"
+      style={{
+        background:
+          "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015) 16%, rgba(255,255,255,0.01) 100%)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.035), 0 12px 28px rgba(0,0,0,0.16)",
+      }}
+    >
+      <p className="mb-1 text-[9px] text-white/30">{label}</p>
+      <p className="text-sm font-semibold text-white/82">{value}</p>
+      {sublabel ? (
+        <p className="mt-1 text-[10px] leading-relaxed text-white/30">
+          {sublabel}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function RouteComparisonCard({
+  label,
+  manufacturer,
+  accent,
+  highlighted = false,
+}: {
+  label: string
+  manufacturer: SupplyScenarioManufacturerNode
+  accent: string
+  highlighted?: boolean
+}) {
+  return (
+    <div
+      className="dashboard-drawer-section rounded-lg p-3"
+      style={{
+        background: highlighted
+          ? `linear-gradient(180deg, color-mix(in oklab, ${accent} 14%, rgba(18,20,28,0.96)), rgba(10,12,18,0.94))`
+          : "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015) 16%, rgba(255,255,255,0.01) 100%)",
+        border: `1px solid ${highlighted ? `color-mix(in oklab, ${accent} 34%, transparent)` : "rgba(255,255,255,0.06)"}`,
+        boxShadow: highlighted
+          ? `inset 0 1px 0 rgba(255,255,255,0.045), 0 12px 28px color-mix(in oklab, ${accent} 10%, rgba(0,0,0,0.24))`
+          : "inset 0 1px 0 rgba(255,255,255,0.035), 0 12px 28px rgba(0,0,0,0.16)",
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-medium tracking-[0.14em] text-white/28 uppercase">
+            {label}
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-white/84">
+            {manufacturer.name}
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-white/36">
+            {manufacturer.location.city}, {manufacturer.location.country}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[9px] text-white/28">Eco</p>
+          <p className="text-xs font-semibold" style={{ color: accent }}>
+            {formatScore(manufacturer.ecoScore)}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-white/36">
+        <span>Est. q50 total</span>
+        <span className="font-mono text-white/56">
+          {formatTco2e(getEstimatedRouteTotalTco2e(manufacturer))}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function getManufacturerStatusPresentation(isCurrent: boolean) {
@@ -1040,6 +1199,7 @@ interface SupplyChainGraphProps {
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  pinnedManufacturerByComponent: Record<string, string>
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
@@ -1059,6 +1219,7 @@ export function SupplyChainGraph({
   hoveredNodeId,
   onHoverNode,
   onSelectNode,
+  pinnedManufacturerByComponent,
   scenario,
   selectedNodeId,
 }: SupplyChainGraphProps) {
@@ -1467,6 +1628,65 @@ export function SupplyChainGraph({
     selectedNode && selectedNode.data.kind !== "manufacturer"
       ? selectedNode.data
       : null
+  const manufacturerById = React.useMemo(
+    () =>
+      new Map(
+        scenario.manufacturers.map((manufacturer) => [manufacturer.id, manufacturer])
+      ),
+    [scenario.manufacturers]
+  )
+  const manufacturersByComponentId = React.useMemo(() => {
+    const nextMap = new Map<string, SupplyScenarioManufacturerNode[]>()
+
+    scenario.components.forEach((component) => {
+      nextMap.set(
+        component.id,
+        component.manufacturerIds
+          .map((manufacturerId) => manufacturerById.get(manufacturerId))
+          .filter(
+            (
+              manufacturer
+            ): manufacturer is SupplyScenarioManufacturerNode => Boolean(manufacturer)
+          )
+      )
+    })
+
+    return nextMap
+  }, [manufacturerById, scenario.components])
+  const componentInsightsById = React.useMemo(() => {
+    const nextMap = new Map<
+      string,
+      {
+        best: SupplyScenarioManufacturerNode | null
+        current: SupplyScenarioManufacturerNode | null
+        manufacturers: SupplyScenarioManufacturerNode[]
+        selected: SupplyScenarioManufacturerNode | null
+      }
+    >()
+
+    scenario.components.forEach((component) => {
+      const manufacturers = manufacturersByComponentId.get(component.id) ?? []
+      nextMap.set(component.id, {
+        best: getBestEcoManufacturer(
+          manufacturers,
+          bestEcoManufacturerByComponent[component.id]
+        ),
+        current: getCurrentManufacturer(manufacturers),
+        manufacturers,
+        selected: getSelectedManufacturer(
+          manufacturers,
+          pinnedManufacturerByComponent[component.id]
+        ),
+      })
+    })
+
+    return nextMap
+  }, [
+    bestEcoManufacturerByComponent,
+    manufacturersByComponentId,
+    pinnedManufacturerByComponent,
+    scenario.components,
+  ])
   const ecoConfig = selectedMfr ? getEcoConfig(selectedMfr.ecoScore) : null
   const drawerSectionStyle = {
     background:
@@ -2128,23 +2348,372 @@ export function SupplyChainGraph({
           )}
 
           {!selectedMfr && (
-            <div className="flex-1 px-4 pb-4">
-              <div
-                className="dashboard-drawer-section rounded-xl p-4"
-                style={{
-                  ...drawerSectionStyle,
-                  background:
-                    "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
-                  borderColor:
-                    "color-mix(in oklab, var(--primary) 16%, transparent)",
-                }}
-              >
-                <p className="text-xs leading-relaxed text-white/50">
-                  {selectedBaseNode?.kind === "product"
-                    ? "End product node. Click connected component or manufacturer nodes to explore the supply chain."
-                    : "Intermediate component. Two alternative manufacturers supply this material."}
-                </p>
-              </div>
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+              {selectedBaseNode?.kind === "product" ? (
+                (() => {
+                  const selectedPath = scenario.components
+                    .map((component) => ({
+                      component,
+                      insight: componentInsightsById.get(component.id),
+                    }))
+                    .filter(
+                      (entry): entry is {
+                        component: SupplyScenarioComponentNode
+                        insight: {
+                          best: SupplyScenarioManufacturerNode | null
+                          current: SupplyScenarioManufacturerNode | null
+                          manufacturers: SupplyScenarioManufacturerNode[]
+                          selected: SupplyScenarioManufacturerNode | null
+                        }
+                      } => Boolean(entry.insight)
+                    )
+                  const selectedManufacturers = selectedPath
+                    .map((entry) => entry.insight.selected)
+                    .filter(
+                      (
+                        manufacturer
+                      ): manufacturer is SupplyScenarioManufacturerNode =>
+                        Boolean(manufacturer)
+                    )
+                  const selectedTotal = selectedManufacturers.reduce(
+                    (sum, manufacturer) =>
+                      sum + getEstimatedRouteTotalTco2e(manufacturer),
+                    0
+                  )
+                  const networkCountries = new Set(
+                    scenario.manufacturers.map(
+                      (manufacturer) => manufacturer.location.countryCode
+                    )
+                  )
+                  const activeCountries = new Set(
+                    selectedManufacturers.map(
+                      (manufacturer) => manufacturer.location.countryCode
+                    )
+                  )
+
+                  return (
+                    <>
+                      <div
+                        className="dashboard-drawer-section rounded-xl p-4"
+                        style={{
+                          ...drawerSectionStyle,
+                          background:
+                            "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
+                          borderColor:
+                            "color-mix(in oklab, var(--primary) 16%, transparent)",
+                        }}
+                      >
+                        <p className="text-xs leading-relaxed text-white/54">
+                          {scenario.quantity.toLocaleString()} {scenario.unit} of{" "}
+                          {scenario.title} route into{" "}
+                          {scenario.destination.location.city},{" "}
+                          {scenario.destination.location.country}. The current
+                          selection spans {formatCount(activeCountries.size)}{" "}
+                          countries with an estimated q50 footprint of{" "}
+                          {formatTco2e(selectedTotal)} across{" "}
+                          {formatCount(selectedManufacturers.length)} active
+                          supplier nodes.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <DrawerMetricCard
+                          label="Quantity"
+                          value={`${formatCount(scenario.quantity)} ${scenario.unit}`}
+                        />
+                        <DrawerMetricCard
+                          label="Components"
+                          value={formatCount(scenario.components.length)}
+                        />
+                        <DrawerMetricCard
+                          label="Supplier nodes"
+                          value={formatCount(scenario.manufacturers.length)}
+                        />
+                        <DrawerMetricCard
+                          label="Network countries"
+                          value={formatCount(networkCountries.size)}
+                        />
+                      </div>
+
+                      <div>
+                        <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
+                          Component routing
+                        </p>
+                        <div className="space-y-2">
+                          {selectedPath.map(({ component, insight }) => {
+                            const selectedManufacturer = insight.selected
+                            const currentManufacturer = insight.current
+                            const bestManufacturer = insight.best
+
+                            if (!selectedManufacturer) {
+                              return null
+                            }
+
+                            const selectedEco = getEcoConfig(
+                              selectedManufacturer.ecoScore
+                            )
+
+                            return (
+                              <div
+                                key={component.id}
+                                className="dashboard-drawer-section rounded-lg p-3"
+                                style={drawerSectionStyle}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-white/84">
+                                      {component.label}
+                                    </p>
+                                    <p className="mt-1 text-[10px] leading-relaxed text-white/36">
+                                      Selected: {selectedManufacturer.name}
+                                    </p>
+                                    <p className="text-[10px] leading-relaxed text-white/30">
+                                      {selectedManufacturer.location.country}
+                                      {currentManufacturer &&
+                                      currentManufacturer.id !==
+                                        selectedManufacturer.id
+                                        ? ` · Current: ${currentManufacturer.name}`
+                                        : " · Current route retained"}
+                                    </p>
+                                    {bestManufacturer &&
+                                    bestManufacturer.id !==
+                                      selectedManufacturer.id ? (
+                                      <p className="text-[10px] leading-relaxed text-white/30">
+                                        Best eco: {bestManufacturer.name}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <div className="text-right">
+                                    <p
+                                      className="text-xs font-semibold"
+                                      style={{ color: selectedEco.color }}
+                                    >
+                                      {formatScore(selectedManufacturer.ecoScore)}
+                                    </p>
+                                    <p className="mt-1 font-mono text-[10px] text-white/38">
+                                      {formatTco2e(
+                                        getEstimatedRouteTotalTco2e(
+                                          selectedManufacturer
+                                        )
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )
+                })()
+              ) : selectedBaseNode?.kind === "component" ? (
+                (() => {
+                  const insight = componentInsightsById.get(selectedBaseNode.id)
+                  const manufacturers = insight?.manufacturers ?? []
+                  const currentManufacturer = insight?.current ?? null
+                  const selectedManufacturer = insight?.selected ?? null
+                  const bestManufacturer = insight?.best ?? null
+                  const countries = new Set(
+                    manufacturers.map(
+                      (manufacturer) => manufacturer.location.countryCode
+                    )
+                  )
+                  const scoreRange =
+                    manufacturers.length > 0
+                      ? {
+                          max: Math.max(
+                            ...manufacturers.map(
+                              (manufacturer) => manufacturer.ecoScore
+                            )
+                          ),
+                          min: Math.min(
+                            ...manufacturers.map(
+                              (manufacturer) => manufacturer.ecoScore
+                            )
+                          ),
+                        }
+                      : null
+
+                  return (
+                    <>
+                      <div
+                        className="dashboard-drawer-section rounded-xl p-4"
+                        style={{
+                          ...drawerSectionStyle,
+                          background:
+                            "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
+                          borderColor:
+                            "color-mix(in oklab, var(--primary) 16%, transparent)",
+                        }}
+                      >
+                        <p className="text-xs leading-relaxed text-white/54">
+                          {selectedBaseNode.label} has{" "}
+                          {formatCount(manufacturers.length)} supplier options
+                          across {formatCount(countries.size)} countries.
+                          {selectedManufacturer ? (
+                            <>
+                              {" "}
+                              The active route points to{" "}
+                              {selectedManufacturer.name} in{" "}
+                              {selectedManufacturer.location.city} with an
+                              estimated q50 footprint of{" "}
+                              {formatTco2e(
+                                getEstimatedRouteTotalTco2e(selectedManufacturer)
+                              )}
+                              .
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <DrawerMetricCard
+                          label="Suppliers"
+                          value={formatCount(manufacturers.length)}
+                        />
+                        <DrawerMetricCard
+                          label="Countries"
+                          value={formatCount(countries.size)}
+                        />
+                        <DrawerMetricCard
+                          label="Selected eco"
+                          value={
+                            selectedManufacturer
+                              ? formatScore(selectedManufacturer.ecoScore)
+                              : "N/A"
+                          }
+                        />
+                        <DrawerMetricCard
+                          label="Eco range"
+                          value={
+                            scoreRange
+                              ? `${formatScore(scoreRange.min)}-${formatScore(scoreRange.max)}`
+                              : "N/A"
+                          }
+                        />
+                      </div>
+
+                      {selectedManufacturer || currentManufacturer || bestManufacturer ? (
+                        <div>
+                          <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
+                            Route comparison
+                          </p>
+                          <div className="space-y-2">
+                            {currentManufacturer ? (
+                              <RouteComparisonCard
+                                label="Current route"
+                                manufacturer={currentManufacturer}
+                                accent={getEcoConfig(currentManufacturer.ecoScore).color}
+                              />
+                            ) : null}
+                            {selectedManufacturer ? (
+                              <RouteComparisonCard
+                                label="Selected route"
+                                manufacturer={selectedManufacturer}
+                                accent={getEcoConfig(selectedManufacturer.ecoScore).color}
+                                highlighted
+                              />
+                            ) : null}
+                            {bestManufacturer ? (
+                              <RouteComparisonCard
+                                label="Best eco route"
+                                manufacturer={bestManufacturer}
+                                accent={getEcoConfig(bestManufacturer.ecoScore).color}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {manufacturers.length > 0 ? (
+                        <div>
+                          <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
+                            Supplier options
+                          </p>
+                          <div className="space-y-2">
+                            {[...manufacturers]
+                              .sort((left, right) => {
+                                const statusDelta =
+                                  Number(right.isCurrent) - Number(left.isCurrent)
+
+                                if (statusDelta !== 0) {
+                                  return statusDelta
+                                }
+
+                                return left.ecoScore - right.ecoScore
+                              })
+                              .map((manufacturer) => {
+                                const manufacturerEco = getEcoConfig(
+                                  manufacturer.ecoScore
+                                )
+                                const isSelectedOption =
+                                  selectedManufacturer?.id === manufacturer.id
+                                const isBestOption =
+                                  bestManufacturer?.id === manufacturer.id
+
+                                return (
+                                  <div
+                                    key={manufacturer.id}
+                                    className="dashboard-drawer-section rounded-lg p-3"
+                                    style={{
+                                      ...drawerSectionStyle,
+                                      border: `1px solid ${isSelectedOption ? manufacturerEco.panelBorder : "rgba(255,255,255,0.06)"}`,
+                                    }}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-white/84">
+                                          {manufacturer.name}
+                                        </p>
+                                        <p className="mt-1 text-[10px] leading-relaxed text-white/36">
+                                          {manufacturer.location.city},{" "}
+                                          {manufacturer.location.country}
+                                        </p>
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          {manufacturer.isCurrent ? (
+                                            <span className="dashboard-chip-muted">
+                                              Current
+                                            </span>
+                                          ) : null}
+                                          {isSelectedOption ? (
+                                            <span className="dashboard-chip-accent">
+                                              Selected
+                                            </span>
+                                          ) : null}
+                                          {isBestOption ? (
+                                            <span className="dashboard-chip-accent">
+                                              Best eco
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <p
+                                          className="text-xs font-semibold"
+                                          style={{ color: manufacturerEco.color }}
+                                        >
+                                          {formatScore(manufacturer.ecoScore)}
+                                        </p>
+                                        <p className="mt-1 font-mono text-[10px] text-white/38">
+                                          {formatTco2e(
+                                            getEstimatedRouteTotalTco2e(
+                                              manufacturer
+                                            )
+                                          )}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  )
+                })()
+              ) : null}
             </div>
           )}
         </div>

@@ -592,7 +592,6 @@
         rgb(124 216 255 / 0.08),
         transparent 24%
       );
-    cursor: progress;
     isolation: isolate;
   }
 
@@ -923,7 +922,6 @@
         transparent 24%
       );
     backdrop-filter: blur(14px);
-    cursor: progress;
     isolation: isolate;
   }
 

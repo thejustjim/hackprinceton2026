@@ -296,7 +296,7 @@ export function DashboardShell({
                   />
                   {reportPending ? "Rendering PDF..." : "Download PDF"}
                 </Button>
-                <div className="sm:col-start-2 sm:w-[9.75rem]">
+                <div className="translate-y-1 sm:col-start-2 sm:w-[9.75rem]">
                   <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                     <div
                       className={cn(
@@ -346,6 +346,7 @@ export function DashboardShell({
               promptPending={promptPending}
               promptPlaceholder={promptPlaceholder}
               promptValue={promptValue}
+              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
               scenario={scenario}
               selectedNodeId={selectedNodeId}
             />
