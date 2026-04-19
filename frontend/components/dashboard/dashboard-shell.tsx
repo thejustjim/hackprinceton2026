@@ -17,6 +17,7 @@ import {
   type SupplyScenario,
   type SupplyScenarioSelectableNodeId,
 } from "@/lib/supply-chain-scenario"
+import { cn } from "@/lib/utils"
 
 interface DashboardShellProps {
   error: string | null
@@ -156,6 +157,11 @@ export function DashboardShell({
         : new Map<string, string>(),
     [scenario]
   )
+  const reportStatusText =
+    reportError ||
+    (reportPending && reportProgress ? reportProgress.label : null) ||
+    scenario?.updatedAt ||
+    null
 
   function handleSelectNode(nodeId: SupplyScenarioSelectableNodeId | null) {
     const componentId = nodeId ? manufacturerComponentById.get(nodeId) : null
@@ -259,60 +265,57 @@ export function DashboardShell({
               </Button>
             ) : null}
             {scenario && onDownloadReport ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  onDownloadReport({
-                    scenario,
-                    selectedManufacturerByComponent:
-                      pinnedManufacturerByComponent,
-                  })
-                }
-                disabled={reportPending}
-                className="rounded-full border-white/12 bg-white/[0.03] text-white/80 hover:bg-white/[0.06] hover:text-white"
-              >
-                <HugeiconsIcon
-                  icon={Download04Icon}
-                  strokeWidth={2}
-                  data-icon="inline-start"
-                />
-                {reportPending ? "Rendering PDF..." : "Download PDF"}
-              </Button>
-            ) : null}
-            {scenario?.updatedAt ? (
-              <p className="text-right text-xs text-muted-foreground sm:max-w-xs">
-                {scenario.updatedAt}
-              </p>
-            ) : null}
-            {reportPending && reportProgress ? (
-              <div className="sm:max-w-xs">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-right text-[11px] text-white/58">
-                    {reportProgress.label}
-                  </p>
-                  <span className="font-mono text-[10px] tracking-[0.14em] text-white/34 uppercase">
-                    Processing
-                  </span>
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-                  <div
-                    className="h-full rounded-full bg-[linear-gradient(90deg,rgba(15,118,110,0.75),rgba(94,234,212,0.92))] transition-[width] duration-500 ease-out"
-                    style={{
-                      width: `${Math.max(
-                        8,
-                        Math.min(reportProgress.value * 100, 96)
-                      )}%`,
-                    }}
+              <div className="grid gap-x-3 gap-y-1 sm:w-[27rem] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <p
+                  className={cn(
+                    "min-w-0 truncate text-right text-xs sm:pr-1",
+                    reportError ? "text-red-300/80" : "text-muted-foreground"
+                  )}
+                  title={reportStatusText ?? undefined}
+                >
+                  {reportStatusText ?? "\u00A0"}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    onDownloadReport({
+                      scenario,
+                      selectedManufacturerByComponent:
+                        pinnedManufacturerByComponent,
+                    })
+                  }
+                  disabled={reportPending}
+                  className="min-w-[9.75rem] justify-center rounded-full border-white/12 bg-white/[0.03] text-white/80 hover:bg-white/[0.06] hover:text-white"
+                >
+                  <HugeiconsIcon
+                    icon={Download04Icon}
+                    strokeWidth={2}
+                    data-icon="inline-start"
                   />
+                  {reportPending ? "Rendering PDF..." : "Download PDF"}
+                </Button>
+                <div className="sm:col-start-2 sm:w-[9.75rem]">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                    <div
+                      className={cn(
+                        "h-full rounded-full bg-[linear-gradient(90deg,rgba(15,118,110,0.75),rgba(94,234,212,0.92))] transition-[width,opacity] duration-500 ease-out",
+                        reportPending && reportProgress
+                          ? "opacity-100"
+                          : "opacity-0"
+                      )}
+                      aria-hidden={!reportPending || !reportProgress}
+                      style={{
+                        width: `${Math.max(
+                          8,
+                          Math.min((reportProgress?.value ?? 0.08) * 100, 96)
+                        )}%`,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
-            ) : null}
-            {reportError ? (
-              <p className="text-right text-xs text-red-300/80 sm:max-w-xs">
-                {reportError}
-              </p>
             ) : null}
           </div>
         </header>

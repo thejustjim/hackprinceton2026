@@ -92,6 +92,14 @@ type LaunchTimings = {
   sync: number
 }
 
+type LaunchSnapshot = {
+  done: boolean
+  handoffProgress: number
+  phase: DashboardLaunchPhase
+  progress: number
+  totalMotionDuration: number
+}
+
 const DASHBOARD_LAUNCH_STATUSES: Record<
   DashboardLaunchPhase,
   DashboardLaunchStatus
@@ -158,42 +166,42 @@ const ROUTE_HUB: GlobeGeoPoint = {
 const GLOBE_ROUTES: GlobeRoute[] = [
   {
     destination: { lat: 40.71, lon: -74.01 },
-    drawEnd: 44,
-    drawStart: 18,
+    drawEnd: 50,
+    drawStart: 16,
     key: "route-hub-ny",
     lift: 1.18,
     origin: ROUTE_HUB,
-    pulseDuration: "5.4s",
+    pulseDuration: "6s",
     tone: "eco",
   },
   {
     destination: { lat: -23.55, lon: -46.63 },
-    drawEnd: 58,
-    drawStart: 26,
+    drawEnd: 64,
+    drawStart: 24,
     key: "route-hub-sao-paulo",
     lift: 1.28,
     origin: ROUTE_HUB,
-    pulseDuration: "5.7s",
+    pulseDuration: "6.3s",
     tone: "balanced",
   },
   {
     destination: { lat: 22.54, lon: 114.06 },
-    drawEnd: 72,
-    drawStart: 36,
+    drawEnd: 78,
+    drawStart: 34,
     key: "route-hub-shenzhen",
     lift: 1.34,
     origin: ROUTE_HUB,
-    pulseDuration: "5.9s",
+    pulseDuration: "6.5s",
     tone: "risk",
   },
   {
     destination: { lat: -33.86, lon: 151.21 },
-    drawEnd: 86,
-    drawStart: 48,
+    drawEnd: 94,
+    drawStart: 44,
     key: "route-hub-sydney",
     lift: 1.4,
     origin: ROUTE_HUB,
-    pulseDuration: "6.1s",
+    pulseDuration: "6.8s",
     tone: "balanced",
   },
 ] as const
@@ -228,9 +236,9 @@ function easeInOutCubic(value: number) {
 function easeRouteReveal(value: number) {
   const base = easeInOutCubic(clamp(value, 0, 1))
   const earlyBoost =
-    0.085 * easeInOutCubic(getWindowProgress(value, 0.22, 0.46))
+    0.055 * easeInOutCubic(getWindowProgress(value, 0.24, 0.46))
   const lateBoost =
-    0.05 * easeInOutCubic(getWindowProgress(value, 0.68, 0.88))
+    0.03 * easeInOutCubic(getWindowProgress(value, 0.7, 0.9))
 
   return clamp(base + (1 - base) * (earlyBoost + lateBoost), 0, 1)
 }
@@ -247,18 +255,22 @@ function getLaunchSnapshot(
   elapsed: number,
   timings: LaunchTimings,
   reducedMotion: boolean
-) {
+): LaunchSnapshot {
   const ease = (value: number) =>
     reducedMotion ? clamp(value, 0, 1) : easeInOutCubic(clamp(value, 0, 1))
   const primingEnd = timings.priming
   const shellEnd = primingEnd + timings.shell
   const syncEnd = shellEnd + timings.sync
   const enteringEnd = syncEnd + timings.entering
+  const fadeDuration = reducedMotion ? 120 : 280
+  const holdDuration = Math.max(0, timings.settle - fadeDuration)
+  const fadeStart = enteringEnd + holdDuration
   const settleEnd = enteringEnd + timings.settle
 
   if (elapsed < primingEnd) {
     return {
       done: false,
+      handoffProgress: 0,
       phase: "priming" as const,
       progress: 16 * ease(elapsed / Math.max(timings.priming, 1)),
       totalMotionDuration: enteringEnd,
@@ -268,6 +280,7 @@ function getLaunchSnapshot(
   if (elapsed < shellEnd) {
     return {
       done: false,
+      handoffProgress: 0,
       phase: "shell" as const,
       progress: 16 + (54 - 16) * ease((elapsed - primingEnd) / Math.max(timings.shell, 1)),
       totalMotionDuration: enteringEnd,
@@ -277,6 +290,7 @@ function getLaunchSnapshot(
   if (elapsed < syncEnd) {
     return {
       done: false,
+      handoffProgress: 0,
       phase: "sync" as const,
       progress: 54 + (86 - 54) * ease((elapsed - shellEnd) / Math.max(timings.sync, 1)),
       totalMotionDuration: enteringEnd,
@@ -286,6 +300,7 @@ function getLaunchSnapshot(
   if (elapsed < enteringEnd) {
     return {
       done: false,
+      handoffProgress: 0,
       phase: "entering" as const,
       progress: 86 + (100 - 86) * ease((elapsed - syncEnd) / Math.max(timings.entering, 1)),
       totalMotionDuration: enteringEnd,
@@ -294,6 +309,7 @@ function getLaunchSnapshot(
 
   return {
     done: elapsed >= settleEnd,
+    handoffProgress: ease(getWindowProgress(elapsed, fadeStart, settleEnd)),
     phase: "entering" as const,
     progress: 100,
     totalMotionDuration: enteringEnd,
@@ -661,6 +677,7 @@ export function DashboardLaunchOverlay({
   reducedMotion,
 }: DashboardLaunchOverlayProps) {
   const [phase, setPhase] = useState<DashboardLaunchPhase>("priming")
+  const [handoffProgress, setHandoffProgress] = useState(0)
   const [progress, setProgress] = useState(0)
   const [geometry, setGeometry] =
     useState<GlobeGeometryData>(DEFAULT_GLOBE_GEOMETRY)
@@ -696,14 +713,14 @@ export function DashboardLaunchOverlay({
       ? {
           entering: 220,
           priming: 220,
-          settle: 140,
+          settle: 260,
           shell: 340,
           sync: 280,
         }
       : {
           entering: 860,
           priming: 880,
-          settle: 240,
+          settle: 1280,
           shell: 1880,
           sync: 1460,
         }
@@ -726,7 +743,7 @@ export function DashboardLaunchOverlay({
             yaw:
               DEFAULT_ROTATION.yaw +
               AUTO_ROTATION_SPEED *
-                Math.min(elapsed, snapshot.totalMotionDuration + timings.settle),
+                Math.min(elapsed, snapshot.totalMotionDuration),
           }
 
       if (now - lastCommit >= ROTATION_COMMIT_INTERVAL_MS || snapshot.done) {
@@ -734,6 +751,7 @@ export function DashboardLaunchOverlay({
         setPhase((currentPhase) =>
           currentPhase === snapshot.phase ? currentPhase : snapshot.phase
         )
+        setHandoffProgress(snapshot.handoffProgress)
         setProgress(snapshot.progress)
         setRotation(nextRotation)
       }
@@ -853,6 +871,7 @@ export function DashboardLaunchOverlay({
   if (!active) return null
 
   const currentPhaseIndex = DASHBOARD_LAUNCH_PHASES.indexOf(phase)
+  const contentOpacity = roundForSvg(1 - handoffProgress, 3)
   const progressRatio = clamp(progress / 100, 0, 1)
   const progressDisplay = Math.round(progress)
   const status = DASHBOARD_LAUNCH_STATUSES[phase]
@@ -879,15 +898,23 @@ export function DashboardLaunchOverlay({
       className={cn(
         "dashboard-launch fixed inset-0 z-[100] overflow-hidden px-4 py-6 sm:px-6 md:px-8",
         `is-${phase}`,
+        progressRatio >= 1 && "is-settled",
         reducedMotion && "is-reduced-motion"
       )}
     >
       <div className="dashboard-launch__backdrop absolute inset-0" />
+      <div
+        className="dashboard-launch__blackout absolute inset-0"
+        style={{ opacity: handoffProgress }}
+      />
       <div className="dashboard-launch__vignette absolute inset-0" />
       <div className="dashboard-launch__grid absolute inset-0" />
       <div className="dashboard-launch__noise absolute inset-0" />
 
-      <div className="dashboard-launch__frame relative z-10 mx-auto flex min-h-full w-full max-w-[1220px] items-center justify-center">
+      <div
+        className="dashboard-launch__frame relative z-10 mx-auto flex min-h-full w-full max-w-[1220px] items-center justify-center"
+        style={{ opacity: contentOpacity }}
+      >
         <div className="dashboard-launch__scene w-full">
           <div className="dashboard-launch__header">
             <h2 className="dashboard-launch__title font-heading text-[clamp(2.1rem,4.7vw,4.2rem)] leading-[0.94] tracking-[-0.06em] text-white">

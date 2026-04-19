@@ -198,7 +198,7 @@ export function PostLaunchChoice() {
           </div>
         </header>
 
-        <section className="flex flex-1 items-center py-10">
+        <section className="flex flex-1 items-start pt-7 pb-10 md:pt-8">
           <div className="grid w-full gap-6 xl:grid-cols-[1.28fr_0.92fr] xl:items-start">
             <Card className="panel-surface gap-0 rounded-[2rem] border-border/70 bg-card/92 py-0">
               <CardHeader className="gap-4 border-b border-border/70 py-6">
