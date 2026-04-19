@@ -36,6 +36,10 @@ interface DashboardShellProps {
   promptValue: string
   reportError?: string | null
   reportPending?: boolean
+  reportProgress?: {
+    label: string
+    value: number
+  }
   scenario: SupplyScenario | null
   scenarioSource: "demo" | "search" | null
   showUploadPanel?: boolean
@@ -113,6 +117,7 @@ export function DashboardShell({
   promptValue,
   reportError,
   reportPending = false,
+  reportProgress,
   scenario,
   scenarioSource,
   showUploadPanel = true,
@@ -273,13 +278,36 @@ export function DashboardShell({
                   strokeWidth={2}
                   data-icon="inline-start"
                 />
-                {reportPending ? "Generating..." : "Download report"}
+                {reportPending ? "Rendering PDF..." : "Download PDF"}
               </Button>
             ) : null}
             {scenario?.updatedAt ? (
               <p className="text-right text-xs text-muted-foreground sm:max-w-xs">
                 {scenario.updatedAt}
               </p>
+            ) : null}
+            {reportPending && reportProgress ? (
+              <div className="sm:max-w-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-right text-[11px] text-white/58">
+                    {reportProgress.label}
+                  </p>
+                  <span className="font-mono text-[10px] tracking-[0.14em] text-white/34 uppercase">
+                    Processing
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div
+                    className="h-full rounded-full bg-[linear-gradient(90deg,rgba(15,118,110,0.75),rgba(94,234,212,0.92))] transition-[width] duration-500 ease-out"
+                    style={{
+                      width: `${Math.max(
+                        8,
+                        Math.min(reportProgress.value * 100, 96)
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
             ) : null}
             {reportError ? (
               <p className="text-right text-xs text-red-300/80 sm:max-w-xs">

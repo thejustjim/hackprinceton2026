@@ -25,12 +25,39 @@ interface DashboardPageProps {
   startsInDemo: boolean
 }
 
+interface ReportProgressState {
+  label: string
+  value: number
+}
+
 function createDefaultPrompt(scenario: SupplyScenario) {
   return `Trace the cleanest fallback path through ${scenario.title} and explain which manufacturer swap cuts the most emissions without creating a new bottleneck.`
 }
 
-function downloadTextFile(fileName: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType })
+function getReportProgressState(elapsedMs: number): ReportProgressState {
+  if (elapsedMs < 1200) {
+    return { label: "Collecting route signals", value: 0.18 }
+  }
+
+  if (elapsedMs < 3200) {
+    return { label: "Writing the narrative", value: 0.46 }
+  }
+
+  if (elapsedMs < 6200) {
+    return { label: "Typesetting the PDF", value: 0.74 }
+  }
+
+  return { label: "Finalizing download", value: 0.92 }
+}
+
+function downloadBase64File(
+  fileName: string,
+  contentBase64: string,
+  mimeType: string
+) {
+  const decoded = atob(contentBase64)
+  const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0))
+  const blob = new Blob([bytes], { type: mimeType })
   const objectUrl = URL.createObjectURL(blob)
   const anchor = document.createElement("a")
   anchor.href = objectUrl
@@ -60,7 +87,24 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
   const [promptError, setPromptError] = useState<string | null>(null)
   const [reportPending, setReportPending] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
+  const [reportElapsedMs, setReportElapsedMs] = useState(0)
   const handoffConsumedRef = useRef(false)
+
+  useEffect(() => {
+    if (!reportPending) {
+      setReportElapsedMs(0)
+      return
+    }
+
+    const startedAt = Date.now()
+    const intervalId = window.setInterval(() => {
+      setReportElapsedMs(Date.now() - startedAt)
+    }, 220)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [reportPending])
 
   const runScenarioCsvText = useCallback(async (text: string) => {
     clearDashboardEntry()
@@ -251,9 +295,9 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
           scenario: activeScenario,
           selectedManufacturerByComponent,
         })
-        downloadTextFile(
+        downloadBase64File(
           response.fileName,
-          response.markdown,
+          response.contentBase64,
           response.mimeType
         )
       } catch (caught) {
@@ -283,6 +327,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       promptPlaceholder={promptPlaceholder}
       promptValue={promptValue}
       reportError={reportError}
+      reportProgress={getReportProgressState(reportElapsedMs)}
       reportPending={reportPending}
       scenario={scenario}
       scenarioSource={scenarioSource}

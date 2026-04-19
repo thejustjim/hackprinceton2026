@@ -117,9 +117,10 @@ export interface ScenarioReportRequest {
 }
 
 export interface ScenarioReportResponse {
+  contentBase64: string
   fileName: string
+  format: "pdf" | "tex"
   generatedAt: string
-  markdown: string
   mimeType: string
   model: string
 }
