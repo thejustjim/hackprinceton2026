@@ -22,6 +22,7 @@ interface InteractiveGlobeProps {
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   pinnedManufacturerByComponent: Record<string, string>
+  routeVisibleByComponent: Record<string, boolean>
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
@@ -143,6 +144,7 @@ const ROUTE_CAPTION_OFFSET = 2.1
 const ROUTE_CAPTION_MARGIN_X = 5.5
 const ROUTE_CAPTION_MARGIN_Y = 5.8
 const ROUTE_CAPTION_MAX_LENGTH = 18
+const INITIAL_DESTINATION_HOLD_MS = 900
 const GRID_LATITUDES_PRIMARY = [-60, -36, -12, 12, 36, 60]
 const GRID_LATITUDES_SECONDARY = [-72, -48, -24, 0, 24, 48, 72]
 const GRID_LONGITUDES_PRIMARY = [
@@ -155,10 +157,6 @@ const PRODUCT_ORBIT = {
   control: { x: 84, y: 86 },
   end: { x: 96, y: 74 },
   start: { x: 69, y: 90 },
-}
-const DEFAULT_ROTATION: RotationState = {
-  pitch: degreesToRadians(-18),
-  yaw: degreesToRadians(-26),
 }
 const GLOBE_SURFACE_THEME = {
   atmosphereHalo: "rgba(218,240,232,0.1)",
@@ -260,6 +258,15 @@ function rotateVector(
 
 function projectGeoPoint(point: GlobeGeoPoint, rotation: RotationState) {
   return rotateVector(toVector(point), rotation)
+}
+
+function getDestinationCenteredRotation(
+  location: SupplyScenarioLocation
+): RotationState {
+  return {
+    pitch: clamp(degreesToRadians(location.lat), -MAX_PITCH, MAX_PITCH),
+    yaw: degreesToRadians(-location.lng),
+  }
 }
 
 /**
@@ -692,26 +699,6 @@ function captionsOverlap(left: RouteCaptionModel, right: RouteCaptionModel) {
   )
 }
 
-function pointOnQuadratic(
-  start: { x: number; y: number },
-  control: { x: number; y: number },
-  end: { x: number; y: number },
-  progress: number
-) {
-  const inverse = 1 - progress
-
-  return {
-    x:
-      inverse * inverse * start.x +
-      2 * inverse * progress * control.x +
-      progress * progress * end.x,
-    y:
-      inverse * inverse * start.y +
-      2 * inverse * progress * control.y +
-      progress * progress * end.y,
-  }
-}
-
 function orbitPath({
   start,
   control,
@@ -1029,18 +1016,24 @@ export function InteractiveGlobe({
   onHoverNode,
   onSelectNode,
   pinnedManufacturerByComponent,
+  routeVisibleByComponent,
   scenario,
   selectedNodeId,
 }: InteractiveGlobeProps) {
-  const [rotation, setRotation] = useState(DEFAULT_ROTATION)
+  const destinationCenteredRotation = useMemo(
+    () => getDestinationCenteredRotation(scenario.destination.location),
+    [scenario.destination.location]
+  )
+  const [rotation, setRotation] = useState(destinationCenteredRotation)
   const [renderedRouteCaptions, setRenderedRouteCaptions] = useState<
     AnimatedRouteCaptionModel[]
   >([])
   const [geometry, setGeometry] = useState(DEFAULT_GLOBE_GEOMETRY)
   const clipPathId = `globe-clip-${useId().replaceAll(":", "")}`
   const dragStateRef = useRef<DragState | null>(null)
+  const autoRotationResumeAtRef = useRef<number | null>(null)
   const lastCommitRef = useRef(0)
-  const rotationRef = useRef(DEFAULT_ROTATION)
+  const rotationRef = useRef(destinationCenteredRotation)
   const routeCaptionStatesRef = useRef(
     new Map<string, RouteCaptionAnimationState>()
   )
@@ -1065,11 +1058,19 @@ export function InteractiveGlobe({
     let frameId = 0
     let previousTimestamp = performance.now()
 
+    if (autoRotationResumeAtRef.current === null) {
+      autoRotationResumeAtRef.current =
+        previousTimestamp + INITIAL_DESTINATION_HOLD_MS
+    }
+
     const tick = (timestamp: number) => {
       const delta = Math.min(40, timestamp - previousTimestamp)
       previousTimestamp = timestamp
 
       if (!dragStateRef.current) {
+        const shouldAutoRotate =
+          timestamp >= (autoRotationResumeAtRef.current ?? 0)
+
         rotationRef.current = {
           pitch: clamp(
             rotationRef.current.pitch + velocityRef.current.pitch * delta,
@@ -1078,7 +1079,7 @@ export function InteractiveGlobe({
           ),
           yaw:
             rotationRef.current.yaw +
-            AUTO_ROTATION_SPEED * delta +
+            (shouldAutoRotate ? AUTO_ROTATION_SPEED * delta : 0) +
             velocityRef.current.yaw * delta,
         }
 
@@ -1227,6 +1228,10 @@ export function InteractiveGlobe({
   const projectedManufacturerSites = useMemo(
     () =>
       scenario.manufacturers
+        .filter(
+          (manufacturer) =>
+            routeVisibleByComponent[manufacturer.componentId] ?? true
+        )
         .map((manufacturer) => ({
           id: manufacturer.id,
           isCurrent: manufacturer.isCurrent,
@@ -1239,7 +1244,7 @@ export function InteractiveGlobe({
         }))
         .filter((site) => site.point.visible)
         .sort((left, right) => left.point.depth - right.point.depth),
-    [rotation, scenario.manufacturers]
+    [rotation, routeVisibleByComponent, scenario.manufacturers]
   )
   const projectedDestination = useMemo(() => {
     const point = projectGeoPointStable(
@@ -1434,8 +1439,13 @@ export function InteractiveGlobe({
     return activeRoutes
   }, [pinnedManufacturerByComponent, routesByComponentId, scenario.components])
   const visibleRouteModels = useMemo(
-    () => Array.from(activeRouteByComponentId.values()),
-    [activeRouteByComponentId]
+    () =>
+      Array.from(activeRouteByComponentId.entries())
+        .filter(
+          ([componentId]) => routeVisibleByComponent[componentId] ?? true
+        )
+        .map(([, route]) => route),
+    [activeRouteByComponentId, routeVisibleByComponent]
   )
   const routeSegments = useMemo(
     () =>
@@ -1493,6 +1503,10 @@ export function InteractiveGlobe({
     }
 
     scenario.components.forEach((component) => {
+      if (!(routeVisibleByComponent[component.id] ?? true)) {
+        return
+      }
+
       const activeRoute = activeRouteByComponentId.get(component.id)
       const basePriority =
         selectedFocus?.componentId === component.id
@@ -1587,6 +1601,7 @@ export function InteractiveGlobe({
     hoveredFocus,
     rotation,
     routeStyleByRouteId,
+    routeVisibleByComponent,
     scenario.components,
     selectedFocus,
   ])
@@ -1607,26 +1622,6 @@ export function InteractiveGlobe({
       })
     })
   }, [routeCaptionTargets])
-  const productOrbitLabel = useMemo(() => {
-    const point = pointOnQuadratic(
-      PRODUCT_ORBIT.start,
-      PRODUCT_ORBIT.control,
-      PRODUCT_ORBIT.end,
-      0.5
-    )
-
-    return {
-      active:
-        selectedNodeId === scenario.product.id ||
-        hoveredNodeId === scenario.product.id,
-      height: 5.9,
-      id: scenario.product.id,
-      label: scenario.product.label,
-      width: Math.max(24, scenario.product.label.length * 1.76 + 9.4),
-      x: roundForSvg(point.x),
-      y: roundForSvg(point.y),
-    }
-  }, [hoveredNodeId, scenario.product, selectedNodeId])
   const visibleRouteCaptions =
     renderedRouteCaptions.length > 0
       ? renderedRouteCaptions
@@ -2334,50 +2329,6 @@ export function InteractiveGlobe({
           stroke={GLOBE_SURFACE_THEME.terminatorStroke}
           strokeWidth="0.32"
         />
-
-        <g
-          onClick={() => onSelectNode(productOrbitLabel.id)}
-          onPointerEnter={() => onHoverNode(productOrbitLabel.id)}
-          onPointerLeave={() => onHoverNode(null)}
-          style={{ cursor: "pointer" }}
-        >
-          <rect
-            x={productOrbitLabel.x - productOrbitLabel.width / 2}
-            y={productOrbitLabel.y - productOrbitLabel.height / 2}
-            width={productOrbitLabel.width}
-            height={productOrbitLabel.height}
-            rx={productOrbitLabel.height / 2}
-            fill={
-              productOrbitLabel.active
-                ? GLOBE_SURFACE_THEME.labelFillStrong
-                : GLOBE_SURFACE_THEME.labelFill
-            }
-            stroke={
-              productOrbitLabel.active
-                ? GLOBE_SURFACE_THEME.productActiveStroke
-                : GLOBE_SURFACE_THEME.productStroke
-            }
-            strokeWidth="0.3"
-          />
-          <text
-            x={productOrbitLabel.x}
-            y={productOrbitLabel.y + 0.8}
-            fill={
-              productOrbitLabel.active
-                ? GLOBE_SURFACE_THEME.labelText
-                : GLOBE_SURFACE_THEME.titleMuted
-            }
-            fontSize="2.18"
-            fontWeight="600"
-            letterSpacing="0.01em"
-            stroke={GLOBE_SURFACE_THEME.shadowFill}
-            strokeWidth="0.4"
-            paintOrder="stroke"
-            textAnchor="middle"
-          >
-            {productOrbitLabel.label}
-          </text>
-        </g>
 
         {visibleRouteCaptions.map((caption) => {
           const accentStroke = withAlpha(

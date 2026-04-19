@@ -12,6 +12,7 @@ interface GraphViewProps {
   bestEcoManufacturerByComponent: Record<string, string>
   className?: string
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  isPanelResizing?: boolean
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onPromptChange: (value: string) => void
   onPromptSubmit: () => void
@@ -21,6 +22,7 @@ interface GraphViewProps {
   promptPending?: boolean
   promptPlaceholder?: string
   promptValue: string
+  routeVisibleByComponent: Record<string, boolean>
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
@@ -29,6 +31,7 @@ export function GraphView({
   bestEcoManufacturerByComponent,
   className,
   hoveredNodeId,
+  isPanelResizing = false,
   onHoverNode,
   onPromptChange,
   onPromptSubmit,
@@ -38,6 +41,7 @@ export function GraphView({
   promptPending,
   promptPlaceholder,
   promptValue,
+  routeVisibleByComponent,
   scenario,
   selectedNodeId,
 }: GraphViewProps) {
@@ -76,9 +80,12 @@ export function GraphView({
         <SupplyChainGraph
           bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
           hoveredNodeId={hoveredNodeId}
+          isPanelResizing={isPanelResizing}
           onHoverNode={onHoverNode}
           onSelectNode={onSelectNode}
           pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+          key={scenario.id}
+          routeVisibleByComponent={routeVisibleByComponent}
           scenario={scenario}
           selectedNodeId={selectedNodeId}
         />

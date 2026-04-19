@@ -10,7 +10,7 @@ Endpoints:
   GET  /health             — liveness probe
 
 Run:
-  uvicorn main:app --reload --port 8000
+  cd .. && uvicorn backend.main:app --reload --port 8000
 """
 
 from __future__ import annotations
@@ -786,7 +786,7 @@ async def edit_scenario_endpoint(
 async def generate_scenario_report_endpoint(
     req: ScenarioReportRequestPayload,
 ) -> ScenarioReportResponsePayload:
-    """Generate a downloadable markdown report for the scenario."""
+    """Generate a downloadable LaTeX-backed report for the scenario."""
     try:
         return await generate_scenario_report_with_gemini(
             req.scenario,

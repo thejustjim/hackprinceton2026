@@ -26,8 +26,10 @@ import { cn } from "@/lib/utils"
 // ---------------------------------------------------------------------------
 
 type GraphNodeState = SupplyScenarioGraphNode
-const FORCE_SIMULATION_MAX_FRAMES = 540
-const FORCE_SIMULATION_SETTLE_FRAMES = 18
+const GRAPH_MIN_SCALE = 0.15
+const GRAPH_MAX_SCALE = 4
+const MANUFACTURER_REVEAL_SCALE_FACTOR = 0.92
+const MANUFACTURER_HIDE_SCALE_FACTOR = 1.02
 const MOST_SUSTAINABLE_EDGE = {
   core: "#6EE7B7",
   coreStrong: "#ECFDF5",
@@ -59,6 +61,51 @@ interface ForceSimulationConfig {
   readableGap: number
   settleThreshold: number
   springStrength: number
+}
+
+interface GraphTransform {
+  scale: number
+  x: number
+  y: number
+}
+
+const DEFAULT_GRAPH_TRANSFORM: GraphTransform = { x: 0, y: 0, scale: 1 }
+
+interface FloatingPanelPosition {
+  x: number
+  y: number
+}
+
+interface FloatingPanelDragState {
+  offsetX: number
+  offsetY: number
+  pointerId: number
+}
+
+interface ComponentInsight {
+  best: SupplyScenarioManufacturerNode | null
+  current: SupplyScenarioManufacturerNode | null
+  manufacturers: SupplyScenarioManufacturerNode[]
+  selected: SupplyScenarioManufacturerNode | null
+}
+
+interface SelectedPathEntry {
+  component: SupplyScenarioComponentNode
+  insight: ComponentInsight
+}
+
+interface GraphStatsOverlayMetric {
+  emphasized?: boolean
+  label: string
+  value: string
+}
+
+interface GraphStatsOverlayData {
+  accentColor: string
+  eyebrow: string
+  metrics: GraphStatsOverlayMetric[]
+  title?: string
+  description?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +186,9 @@ function getSelectedManufacturer(
   pinnedManufacturerId?: string
 ) {
   return (
-    manufacturers.find((manufacturer) => manufacturer.id === pinnedManufacturerId) ??
-    getCurrentManufacturer(manufacturers)
+    manufacturers.find(
+      (manufacturer) => manufacturer.id === pinnedManufacturerId
+    ) ?? getCurrentManufacturer(manufacturers)
   )
 }
 
@@ -175,6 +223,68 @@ function DrawerMetricCard({
   )
 }
 
+function EcoScoreRing({
+  score,
+  size = 40,
+  strokeWidth = 4,
+}: {
+  score: number
+  size?: number
+  strokeWidth?: number
+}) {
+  const cfg = getEcoConfig(score)
+  const radius = (size - strokeWidth - 4) / 2
+  const circumference = 2 * Math.PI * radius
+  const dashOffset = circumference * (1 - score / 100)
+
+  return (
+    <div
+      className="relative shrink-0"
+      style={{
+        filter: `drop-shadow(0 0 10px color-mix(in oklab, ${cfg.color} 24%, transparent))`,
+        height: size,
+        width: size,
+      }}
+    >
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={cfg.color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          style={{
+            transition: "stroke-dashoffset 720ms cubic-bezier(0.22,1,0.36,1)",
+          }}
+        />
+      </svg>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span
+          className="text-[11px] leading-none font-semibold"
+          style={{ color: cfg.color }}
+        >
+          {Math.round(score)}
+        </span>
+        <span className="mt-0.5 text-[7px] leading-none text-white/28">
+          eco
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function RouteComparisonCard({
   label,
   manufacturer,
@@ -188,41 +298,126 @@ function RouteComparisonCard({
 }) {
   return (
     <div
-      className="dashboard-drawer-section rounded-lg p-3"
+      className="dashboard-drawer-section rounded-lg p-2.5"
       style={{
         background: highlighted
-          ? `linear-gradient(180deg, color-mix(in oklab, ${accent} 14%, rgba(18,20,28,0.96)), rgba(10,12,18,0.94))`
-          : "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015) 16%, rgba(255,255,255,0.01) 100%)",
-        border: `1px solid ${highlighted ? `color-mix(in oklab, ${accent} 34%, transparent)` : "rgba(255,255,255,0.06)"}`,
-        boxShadow: highlighted
-          ? `inset 0 1px 0 rgba(255,255,255,0.045), 0 12px 28px color-mix(in oklab, ${accent} 10%, rgba(0,0,0,0.24))`
-          : "inset 0 1px 0 rgba(255,255,255,0.035), 0 12px 28px rgba(0,0,0,0.16)",
+          ? `linear-gradient(180deg, color-mix(in oklab, ${accent} 10%, rgba(7,12,16,0.72)), rgba(7,12,16,0.6))`
+          : "rgba(7,12,16,0.58)",
+        border: `1px solid ${highlighted ? `color-mix(in oklab, ${accent} 28%, transparent)` : "rgba(255,255,255,0.06)"}`,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.035)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[9px] font-medium tracking-[0.14em] text-white/28 uppercase">
+          <p className="text-[8px] font-medium tracking-[0.14em] text-white/26 uppercase">
             {label}
           </p>
-          <p className="mt-1 truncate text-sm font-semibold text-white/84">
+          <p className="mt-0.5 truncate text-[13px] font-semibold text-white/84">
             {manufacturer.name}
           </p>
-          <p className="mt-1 text-[10px] leading-relaxed text-white/36">
+          <p className="text-[10px] leading-relaxed text-white/34">
             {manufacturer.location.city}, {manufacturer.location.country}
           </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {manufacturer.isCurrent ? (
+              <span className="dashboard-chip-muted">Current</span>
+            ) : null}
+            {highlighted ? (
+              <span className="dashboard-chip-accent">Selected</span>
+            ) : null}
+            {manufacturer.certifications.slice(0, 1).map((cert) => (
+              <span key={cert} className="dashboard-chip-muted">
+                {CERT_LABELS[cert] ?? cert}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-[9px] text-white/28">Eco</p>
-          <p className="text-xs font-semibold" style={{ color: accent }}>
-            {formatScore(manufacturer.ecoScore)}
-          </p>
+        <div className="flex shrink-0 items-start gap-2">
+          <EcoScoreRing
+            score={manufacturer.ecoScore}
+            size={38}
+            strokeWidth={3.5}
+          />
+          <div className="pt-0.5 text-right">
+            <p className="text-[8px] text-white/26">Q50</p>
+            <p className="text-[13px] font-semibold whitespace-nowrap text-white/84">
+              {formatTco2e(getEstimatedRouteTotalTco2e(manufacturer))}
+            </p>
+          </div>
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-between gap-3 text-[10px] text-white/36">
-        <span>Est. q50 total</span>
-        <span className="font-mono text-white/56">
-          {formatTco2e(getEstimatedRouteTotalTco2e(manufacturer))}
-        </span>
+    </div>
+  )
+}
+
+function GraphStatsOverlay({ data }: { data: GraphStatsOverlayData }) {
+  return (
+    <div
+      className="pointer-events-none absolute top-4 left-4 z-20 w-[min(18rem,calc(100%-2rem))] rounded-xl p-2.5"
+      style={{
+        background: `linear-gradient(180deg, color-mix(in oklab, ${data.accentColor} 8%, rgba(13,16,24,0.95)), rgba(8,10,16,0.91))`,
+        border: `1px solid color-mix(in oklab, ${data.accentColor} 24%, rgba(255,255,255,0.08))`,
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.05), 0 20px 40px rgba(0,0,0,0.28)",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      <div
+        className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+        style={{
+          background: `linear-gradient(90deg, transparent, color-mix(in oklab, ${data.accentColor} 48%, white 10%), transparent)`,
+        }}
+      />
+      <p
+        className="text-[8px] font-medium tracking-[0.18em] uppercase"
+        style={{
+          color: `color-mix(in oklab, ${data.accentColor} 66%, white 18%)`,
+        }}
+      >
+        {data.eyebrow}
+      </p>
+      {data.title ? (
+        <h3 className="mt-1 text-[14px] leading-tight font-semibold text-white/88">
+          {data.title}
+        </h3>
+      ) : null}
+      {data.description ? (
+        <p className="mt-0.5 text-[10px] leading-snug text-white/44">
+          {data.description}
+        </p>
+      ) : null}
+
+      <div
+        className={cn(
+          "space-y-1.5",
+          data.title || data.description ? "mt-3" : "mt-2"
+        )}
+      >
+        {data.metrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="rounded-lg px-2.5 py-1.5"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div className="flex items-end justify-between gap-3">
+              <p className="text-[8px] tracking-[0.12em] text-white/28 uppercase">
+                {metric.label}
+              </p>
+              <p
+                className={cn(
+                  "leading-none font-semibold whitespace-nowrap text-white/86",
+                  metric.emphasized ? "text-[15px]" : "text-[12px]"
+                )}
+              >
+                {metric.value}
+              </p>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -351,10 +546,18 @@ function getLayoutConfig(
   const crowding = getGraphCrowdingScore(nodes, viewport)
 
   return {
-    componentPull: clamp(0.56 - compactness * 0.09 - crowding * 0.08, 0.28, 0.58),
+    componentPull: clamp(
+      0.56 - compactness * 0.09 - crowding * 0.08,
+      0.28,
+      0.58
+    ),
     fitPaddingX: 112 - compactness * 34 + crowding * 30,
     fitPaddingY: 96 - compactness * 28 + crowding * 24,
-    fitZoomBoost: clamp(1.05 + compactness * 0.12 - crowding * 0.18, 0.78, 1.18),
+    fitZoomBoost: clamp(
+      1.05 + compactness * 0.12 - crowding * 0.18,
+      0.78,
+      1.18
+    ),
     manufacturerPull: clamp(
       0.44 - compactness * 0.12 - crowding * 0.1,
       0.18,
@@ -420,11 +623,15 @@ function buildCompactGraphNodes(
 
   manufacturersByComponent.forEach((manufacturerNodes) => {
     manufacturerNodes.sort((left, right) => {
-      if (left.data.kind !== "manufacturer" || right.data.kind !== "manufacturer") {
+      if (
+        left.data.kind !== "manufacturer" ||
+        right.data.kind !== "manufacturer"
+      ) {
         return 0
       }
 
-      const statusDelta = Number(right.data.isCurrent) - Number(left.data.isCurrent)
+      const statusDelta =
+        Number(right.data.isCurrent) - Number(left.data.isCurrent)
       if (statusDelta !== 0) {
         return statusDelta
       }
@@ -444,7 +651,8 @@ function buildCompactGraphNodes(
       Math.max(productSize.w, productSize.h) * 0.08) *
     viewportScale
   const manufacturerBaseRadius =
-    componentRingRadius + (118 + crowding * 62 + componentCount * 8) * viewportScale
+    componentRingRadius +
+    (118 + crowding * 62 + componentCount * 8) * viewportScale
   const sectorAngle = (Math.PI * 2) / componentCount
   const manufacturerAngleStep = clamp(0.24 - crowding * 0.05, 0.14, 0.26)
   const maxSpread = clamp(sectorAngle * 0.86, 0.48, 1.24)
@@ -452,7 +660,8 @@ function buildCompactGraphNodes(
   anchorPositions.set(productNode.id, productAnchor)
 
   components.forEach((component, componentIndex) => {
-    const componentAngle = (componentIndex / componentCount) * Math.PI * 2 - Math.PI / 2
+    const componentAngle =
+      (componentIndex / componentCount) * Math.PI * 2 - Math.PI / 2
     const componentNodeSize = getNodeSize(component)
     const componentCenter = {
       x: productCenter.x + Math.cos(componentAngle) * componentRingRadius,
@@ -472,7 +681,8 @@ function buildCompactGraphNodes(
 
     manufacturers.forEach((manufacturer, manufacturerIndex) => {
       const manufacturerSize = getNodeSize(manufacturer)
-      const localOffsetIndex = manufacturerIndex - (manufacturers.length - 1) / 2
+      const localOffsetIndex =
+        manufacturerIndex - (manufacturers.length - 1) / 2
       const localAngle =
         manufacturers.length <= 1
           ? componentAngle
@@ -681,12 +891,91 @@ function getFitTransform(
     availableWidth / bounds.width,
     availableHeight / bounds.height
   )
-  const scale = clamp(fittedScale * config.fitZoomBoost, config.minFitScale, 1.28)
+  const scale = clamp(
+    fittedScale * config.fitZoomBoost,
+    config.minFitScale,
+    1.28
+  )
 
   return {
     scale,
     x: width / 2 - bounds.centerX * scale,
     y: height / 2 - bounds.centerY * scale,
+  }
+}
+
+function getScaledTransformAtPoint(
+  transform: GraphTransform,
+  pointer: { x: number; y: number },
+  nextScale: number
+) {
+  const worldX = (pointer.x - transform.x) / transform.scale
+  const worldY = (pointer.y - transform.y) / transform.scale
+
+  return {
+    scale: nextScale,
+    x: pointer.x - worldX * nextScale,
+    y: pointer.y - worldY * nextScale,
+  }
+}
+
+function createVisibleComponentIdSet(
+  scenario: SupplyScenario,
+  routeVisibleByComponent: Record<string, boolean>
+) {
+  return new Set(
+    scenario.components
+      .filter((component) => routeVisibleByComponent[component.id] ?? true)
+      .map((component) => component.id)
+  )
+}
+
+function isGraphNodeVisible(
+  node: GraphNodeState,
+  visibleComponentIds: Set<string>,
+  manufacturerLayerVisible: boolean
+) {
+  if (node.data.kind === "product") {
+    return true
+  }
+
+  if (node.data.kind === "component") {
+    return visibleComponentIds.has(node.id)
+  }
+
+  return (
+    manufacturerLayerVisible && visibleComponentIds.has(node.data.componentId)
+  )
+}
+
+function filterGraphNodes(
+  nodes: GraphNodeState[],
+  visibleComponentIds: Set<string>,
+  manufacturerLayerVisible: boolean
+) {
+  return nodes.filter((node) =>
+    isGraphNodeVisible(node, visibleComponentIds, manufacturerLayerVisible)
+  )
+}
+
+function filterGraphEdges(
+  edges: SupplyScenarioGraphEdge[],
+  renderedNodeIds: Set<string>
+) {
+  return edges.filter(
+    (edge) =>
+      renderedNodeIds.has(edge.sourceId) && renderedNodeIds.has(edge.targetId)
+  )
+}
+
+function snapGraphValue(value: number, increment = 0.5) {
+  return Math.round(value / increment) * increment
+}
+
+function snapGraphPosition(position: { x: number; y: number }) {
+  return {
+    x: snapGraphValue(position.x),
+    y: snapGraphValue(position.y),
   }
 }
 
@@ -778,7 +1067,10 @@ function getDesiredEdgeDistance(
     config.collisionPadding +
     config.linkSpacing
 
-  if (sourceNode.data.kind === "product" || targetNode.data.kind === "product") {
+  if (
+    sourceNode.data.kind === "product" ||
+    targetNode.data.kind === "product"
+  ) {
     return base + 40
   }
 
@@ -797,6 +1089,7 @@ function runForceSimulationStep({
   draggedNodeId,
   dtScale,
   edges,
+  isResizeActive,
   nodes,
   velocities,
   viewport,
@@ -805,16 +1098,38 @@ function runForceSimulationStep({
   draggedNodeId: string | null
   dtScale: number
   edges: SupplyScenarioGraphEdge[]
+  isResizeActive: boolean
   nodes: GraphNodeState[]
   velocities: Map<string, GraphVector>
   viewport: GraphViewportSize | null
 }) {
-  const config = getForceSimulationConfig(nodes, edges, viewport)
+  const baseConfig = getForceSimulationConfig(nodes, edges, viewport)
+  const interactionDamping = draggedNodeId ? 0.72 : isResizeActive ? 0.34 : 1
+  const config = {
+    ...baseConfig,
+    anchorStrengthComponent:
+      baseConfig.anchorStrengthComponent * interactionDamping,
+    anchorStrengthManufacturer:
+      baseConfig.anchorStrengthManufacturer * interactionDamping,
+    collisionStrength: baseConfig.collisionStrength * interactionDamping,
+    damping: clamp(
+      isResizeActive ? baseConfig.damping * 0.92 : baseConfig.damping,
+      0.78,
+      0.94
+    ),
+    longRangeRepulsion: baseConfig.longRangeRepulsion * interactionDamping,
+    maxSpeed: isResizeActive ? baseConfig.maxSpeed * 0.45 : baseConfig.maxSpeed,
+    springStrength: baseConfig.springStrength * interactionDamping,
+  }
   const forces = new Map(nodes.map((node) => [node.id, { x: 0, y: 0 }]))
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const))
 
   for (let index = 0; index < nodes.length; index += 1) {
-    for (let otherIndex = index + 1; otherIndex < nodes.length; otherIndex += 1) {
+    for (
+      let otherIndex = index + 1;
+      otherIndex < nodes.length;
+      otherIndex += 1
+    ) {
       const node = nodes[index]
       const otherNode = nodes[otherIndex]
       const nodeCenter = getNodeCenter(node)
@@ -831,9 +1146,7 @@ function runForceSimulationStep({
       const nodeMobility = getInteractiveMobility(node, draggedNodeId)
       const otherMobility = getInteractiveMobility(otherNode, draggedNodeId)
       const preferredDistance =
-        getNodeRadius(node) +
-        getNodeRadius(otherNode) +
-        config.collisionPadding
+        getNodeRadius(node) + getNodeRadius(otherNode) + config.collisionPadding
       const readableDistance = preferredDistance + config.readableGap
 
       if (distance >= readableDistance) {
@@ -992,64 +1305,222 @@ function getIntersection(node: GraphNodeState, dx: number, dy: number) {
   return { x: cx + dx * s, y: cy + dy * s }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+interface GraphTransformAnimation {
+  durationMs: number
+  startAt: number | null
+  startTransform: GraphTransform
+  targetTransform: GraphTransform
+}
 
-function EcoScoreRing({ score, size = 64 }: { score: number; size?: number }) {
-  const cfg = getEcoConfig(score)
-  const r = (size - 10) / 2
-  const circ = 2 * Math.PI * r
-  const fill = circ * (1 - score / 100)
+interface GraphInertiaState {
+  x: number
+  y: number
+}
+
+interface GraphEdgeElementRefs {
+  ambient: SVGPathElement | null
+  flow: SVGPathElement | null
+  glow: SVGPathElement | null
+  hit: SVGPathElement | null
+  main: SVGPathElement | null
+  selectedGlow: SVGPathElement | null
+}
+
+interface GraphRenderRefs {
+  ambientGlow: HTMLDivElement | null
+  edges: Map<string, GraphEdgeElementRefs>
+  grid: HTMLDivElement | null
+  nodes: Map<string, HTMLDivElement>
+  world: HTMLDivElement | null
+  zoomLabel: HTMLSpanElement | null
+}
+
+type GraphEdgeElementPart = keyof GraphEdgeElementRefs
+
+type GraphPointerState =
+  | {
+      currentClientX: number
+      currentClientY: number
+      lastClientX: number
+      lastClientY: number
+      lastTs: number
+      moved: boolean
+      originTransform: GraphTransform
+      pointerId: number
+      startClientX: number
+      startClientY: number
+      type: "canvas"
+      velocityX: number
+      velocityY: number
+    }
+  | {
+      currentClientX: number
+      currentClientY: number
+      moved: boolean
+      nodeId: string
+      originPosition: { x: number; y: number }
+      pointerId: number
+      startClientX: number
+      startClientY: number
+      type: "node"
+    }
+
+interface GraphSceneState {
+  dragState: GraphPointerState | null
+  hasManualCameraInteraction: boolean
+  inertia: GraphInertiaState | null
+  interactionMode: boolean
+  isResizeActive: boolean
+  transform: GraphTransform
+  transformAnimation: GraphTransformAnimation | null
+}
+
+function createEdgeElementRefs(): GraphEdgeElementRefs {
+  return {
+    ambient: null,
+    flow: null,
+    glow: null,
+    hit: null,
+    main: null,
+    selectedGlow: null,
+  }
+}
+
+function createRenderRefs(): GraphRenderRefs {
+  return {
+    ambientGlow: null,
+    edges: new Map(),
+    grid: null,
+    nodes: new Map(),
+    world: null,
+    zoomLabel: null,
+  }
+}
+
+function createSceneState(): GraphSceneState {
+  return {
+    dragState: null,
+    hasManualCameraInteraction: false,
+    inertia: null,
+    interactionMode: false,
+    isResizeActive: false,
+    transform: { ...DEFAULT_GRAPH_TRANSFORM },
+    transformAnimation: null,
+  }
+}
+
+function createNodePositionMap(nodes: GraphNodeState[]) {
+  return new Map(nodes.map((node) => [node.id, { ...node.position }] as const))
+}
+
+function buildSceneNodes(
+  nodes: GraphNodeState[],
+  positions: Map<string, { x: number; y: number }>
+) {
+  return nodes.map((node) => ({
+    ...node,
+    position: positions.get(node.id) ?? node.position,
+  }))
+}
+
+function syncNodePositionMap(
+  positions: Map<string, { x: number; y: number }>,
+  nodes: GraphNodeState[]
+) {
+  let changed = false
+
+  nodes.forEach((node) => {
+    const previousPosition = positions.get(node.id)
+
+    if (
+      previousPosition &&
+      Math.abs(previousPosition.x - node.position.x) < 0.001 &&
+      Math.abs(previousPosition.y - node.position.y) < 0.001
+    ) {
+      return
+    }
+
+    positions.set(node.id, { ...node.position })
+    changed = true
+  })
+
+  return changed
+}
+
+function stabilizeSceneNodes(
+  nodes: GraphNodeState[],
+  positions: Map<string, { x: number; y: number }>,
+  velocities: Map<string, GraphVector>
+) {
+  let changed = false
+
+  nodes.forEach((node) => {
+    velocities.set(node.id, { x: 0, y: 0 })
+
+    const currentPosition = positions.get(node.id) ?? node.position
+    const nextPosition = snapGraphPosition(currentPosition)
+
+    if (
+      Math.abs(currentPosition.x - nextPosition.x) < 0.001 &&
+      Math.abs(currentPosition.y - nextPosition.y) < 0.001
+    ) {
+      return
+    }
+
+    positions.set(node.id, nextPosition)
+    changed = true
+  })
+
+  return changed
+}
+
+function getPaintedTransform(transform: GraphTransform) {
+  return {
+    scale: Math.round(transform.scale * 1000) / 1000,
+    x: snapGraphValue(transform.x),
+    y: snapGraphValue(transform.y),
+  }
+}
+
+function hasMeaningfulTransformDelta(
+  currentTransform: GraphTransform,
+  nextTransform: GraphTransform
+) {
   return (
-    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="rgba(255,255,255,0.06)"
-        strokeWidth={5}
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke={cfg.color}
-        strokeWidth={5}
-        strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={fill}
-        style={{
-          filter: `drop-shadow(0 0 6px ${cfg.color})`,
-          transition: "stroke-dashoffset 1s cubic-bezier(0.34,1.56,0.64,1)",
-        }}
-        className="eco-arc"
-      />
-    </svg>
+    Math.abs(currentTransform.scale - nextTransform.scale) >= 0.001 ||
+    Math.abs(currentTransform.x - nextTransform.x) >= 0.5 ||
+    Math.abs(currentTransform.y - nextTransform.y) >= 0.5
   )
 }
 
-interface EdgeProps {
-  drawDelay: number
-  flowActive: boolean
-  mostSustainable: boolean
-  sourceNode: GraphNodeState
-  targetNode: GraphNodeState
-  selected: boolean
-  hovered: boolean
+function clampTransformToViewport(
+  transform: GraphTransform,
+  nodes: GraphNodeState[],
+  viewport: GraphViewportSize | null
+) {
+  const width = viewport?.width ?? 0
+  const height = viewport?.height ?? 0
+
+  if (!width || !height || nodes.length === 0) {
+    return null
+  }
+
+  const bounds = getGraphBounds(nodes)
+  const paddingX = Math.min(96, width * 0.16)
+  const paddingY = Math.min(84, height * 0.18)
+  const minX = width - paddingX - bounds.right * transform.scale
+  const maxX = paddingX - bounds.left * transform.scale
+  const minY = height - paddingY - bounds.bottom * transform.scale
+  const maxY = paddingY - bounds.top * transform.scale
+
+  return {
+    ...transform,
+    x: minX > maxX ? (minX + maxX) / 2 : clamp(transform.x, minX, maxX),
+    y: minY > maxY ? (minY + maxY) / 2 : clamp(transform.y, minY, maxY),
+  }
 }
 
-function ConnectionEdge({
-  drawDelay,
-  flowActive,
-  mostSustainable,
-  sourceNode,
-  targetNode,
-  selected,
-  hovered,
-}: EdgeProps) {
+function getEdgePath(sourceNode: GraphNodeState, targetNode: GraphNodeState) {
   const { w: sw, h: sh } = getNodeSize(sourceNode)
   const { w: tw, h: th } = getNodeSize(targetNode)
   const sc = {
@@ -1062,133 +1533,226 @@ function ConnectionEdge({
   }
   const dx = tc.x - sc.x
   const dy = tc.y - sc.y
-  if (Math.hypot(dx, dy) < 10) return null
+
+  if (Math.hypot(dx, dy) < 10) {
+    return null
+  }
+
   const start = getIntersection(sourceNode, dx, dy)
   const end = getIntersection(targetNode, -dx, -dy)
-  const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`
-  const markerId = mostSustainable
-    ? selected
-      ? "arrow-eco-sel"
-      : hovered
-        ? "arrow-eco-hov"
-        : "arrow-eco-def"
-    : selected
-      ? "arrow-sel"
-      : hovered
-        ? "arrow-hov"
-        : "arrow-def"
-  const mainStroke = mostSustainable
-    ? selected
-      ? MOST_SUSTAINABLE_EDGE.coreStrong
-      : hovered
-        ? "rgba(167,243,208,0.98)"
-        : "rgba(110,231,183,0.88)"
-    : selected
-      ? "#F1E9FF"
-      : hovered
-        ? "rgba(228,219,250,0.88)"
-        : "rgba(214,207,224,0.68)"
-  const ambientStroke = mostSustainable
-    ? "rgba(167,243,208,0.18)"
-    : "rgba(226,220,235,0.14)"
-  const flowStroke = mostSustainable
-    ? selected
-      ? MOST_SUSTAINABLE_EDGE.pulseStrong
-      : "rgba(167,243,208,0.72)"
-    : selected
-      ? "rgba(255,250,255,0.94)"
-      : "rgba(233,224,255,0.48)"
 
-  return (
-    <g>
-      {/* Wide invisible hit area */}
-      <path
-        d={path}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={20}
-        className="cursor-pointer"
-      />
-      {mostSustainable ? (
-        <path
-          d={path}
-          fill="none"
-          stroke={
-            selected || hovered
-              ? MOST_SUSTAINABLE_EDGE.glowStrong
-              : MOST_SUSTAINABLE_EDGE.glowSoft
-          }
-          strokeWidth={selected ? 16 : hovered ? 13 : 11}
-          style={{ filter: selected ? "blur(10px)" : "blur(8px)" }}
-        />
-      ) : null}
-      {/* Glow layer when active */}
-      {(selected || hovered) && (
-        <path
-          d={path}
-          fill="none"
-          stroke={
-            selected ? "rgba(233,224,255,0.34)" : "rgba(226,220,235,0.16)"
-          }
-          strokeWidth={selected ? 9 : 6}
-          style={{ filter: selected ? "blur(6px)" : "blur(3px)" }}
-        />
-      )}
-      {/* Main stroke */}
-      <path
-        d={path}
-        fill="none"
-        stroke={mainStroke}
-        pathLength={100}
-        strokeDasharray="100"
-        strokeWidth={
-          mostSustainable
-            ? selected
-              ? 3.4
-              : hovered
-                ? 2.9
-                : 2.6
-            : selected
-              ? 2.6
-              : hovered
-                ? 2.1
-                : 1.8
-        }
-        markerEnd={`url(#${markerId})`}
-        className="edge-draw"
-        style={{
-          animationDelay: `${drawDelay}s`,
-          transition: "stroke 0.2s, stroke-width 0.2s",
-        }}
-      />
-      {/* Animated flow particles when selected */}
-      <path
-        d={path}
-        fill="none"
-        stroke={ambientStroke}
-        strokeWidth={0.9}
-        strokeDasharray="7 30"
-        className="edge-flow-ambient"
-      />
-      {(selected || flowActive || mostSustainable) && (
-        <path
-          d={path}
-          fill="none"
-          stroke={flowStroke}
-          strokeWidth={
-            mostSustainable ? (selected ? 1.9 : 1.35) : selected ? 1.8 : 1.2
-          }
-          strokeDasharray={
-            selected ? "5 14" : mostSustainable ? "6 16" : "6 18"
-          }
-          className={
-            selected || mostSustainable ? "edge-flow" : "edge-flow-subtle"
-          }
-        />
-      )}
-    </g>
-  )
+  return `M ${snapGraphValue(start.x)} ${snapGraphValue(start.y)} L ${snapGraphValue(end.x)} ${snapGraphValue(end.y)}`
 }
+
+interface EdgeProps {
+  drawDelay: number
+  edgeId: string
+  flowActive: boolean
+  hovered: boolean
+  initialPath: string | null
+  interactionMode: boolean
+  mostSustainable: boolean
+  onHoverEnd: () => void
+  onHoverStart: () => void
+  registerElement: (
+    edgeId: string,
+    part: GraphEdgeElementPart,
+    element: SVGPathElement | null
+  ) => void
+  selected: boolean
+}
+
+const ConnectionEdge = React.memo(
+  function ConnectionEdge({
+    drawDelay,
+    edgeId,
+    flowActive,
+    hovered,
+    initialPath,
+    interactionMode,
+    mostSustainable,
+    onHoverEnd,
+    onHoverStart,
+    registerElement,
+    selected,
+  }: EdgeProps) {
+    const path = initialPath ?? "M 0 0 L 0 0"
+    const markerId = mostSustainable
+      ? selected
+        ? "arrow-eco-sel"
+        : hovered
+          ? "arrow-eco-hov"
+          : "arrow-eco-def"
+      : selected
+        ? "arrow-sel"
+        : hovered
+          ? "arrow-hov"
+          : "arrow-def"
+    const mainStroke = mostSustainable
+      ? selected
+        ? MOST_SUSTAINABLE_EDGE.coreStrong
+        : hovered
+          ? "rgba(167,243,208,0.98)"
+          : "rgba(110,231,183,0.88)"
+      : selected
+        ? "#F1E9FF"
+        : hovered
+          ? "rgba(228,219,250,0.88)"
+          : "rgba(214,207,224,0.68)"
+    const ambientStroke = mostSustainable
+      ? "rgba(167,243,208,0.18)"
+      : "rgba(226,220,235,0.14)"
+    const flowStroke = mostSustainable
+      ? selected
+        ? MOST_SUSTAINABLE_EDGE.pulseStrong
+        : "rgba(167,243,208,0.72)"
+      : selected
+        ? "rgba(255,250,255,0.94)"
+        : "rgba(233,224,255,0.48)"
+
+    return (
+      <g
+        className="pointer-events-auto"
+        onPointerEnter={onHoverStart}
+        onPointerLeave={onHoverEnd}
+        style={{ display: initialPath ? undefined : "none" }}
+      >
+        {/* Wide invisible hit area */}
+        <path
+          ref={(element) => registerElement(edgeId, "hit", element)}
+          d={path}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={20}
+          className="cursor-pointer"
+        />
+        {mostSustainable ? (
+          <path
+            ref={(element) => registerElement(edgeId, "glow", element)}
+            d={path}
+            fill="none"
+            stroke={
+              selected || hovered
+                ? MOST_SUSTAINABLE_EDGE.glowStrong
+                : MOST_SUSTAINABLE_EDGE.glowSoft
+            }
+            strokeWidth={
+              interactionMode
+                ? selected
+                  ? 10
+                  : hovered
+                    ? 8
+                    : 7
+                : selected
+                  ? 16
+                  : hovered
+                    ? 13
+                    : 11
+            }
+            style={{
+              filter: interactionMode
+                ? selected
+                  ? "blur(5px)"
+                  : "blur(4px)"
+                : selected
+                  ? "blur(10px)"
+                  : "blur(8px)",
+            }}
+          />
+        ) : null}
+        {/* Glow layer when active */}
+        {(selected || hovered) && (
+          <path
+            ref={(element) => registerElement(edgeId, "selectedGlow", element)}
+            d={path}
+            fill="none"
+            stroke={
+              selected ? "rgba(233,224,255,0.34)" : "rgba(226,220,235,0.16)"
+            }
+            strokeWidth={
+              interactionMode ? (selected ? 6 : 4) : selected ? 9 : 6
+            }
+            style={{
+              filter: interactionMode
+                ? selected
+                  ? "blur(4px)"
+                  : "blur(2px)"
+                : selected
+                  ? "blur(6px)"
+                  : "blur(3px)",
+            }}
+          />
+        )}
+        {/* Main stroke */}
+        <path
+          ref={(element) => registerElement(edgeId, "main", element)}
+          d={path}
+          fill="none"
+          stroke={mainStroke}
+          pathLength={100}
+          strokeDasharray="100"
+          strokeWidth={
+            mostSustainable
+              ? selected
+                ? 3.4
+                : hovered
+                  ? 2.9
+                  : 2.6
+              : selected
+                ? 2.6
+                : hovered
+                  ? 2.1
+                  : 1.8
+          }
+          markerEnd={`url(#${markerId})`}
+          className={interactionMode ? undefined : "edge-draw"}
+          style={{
+            animationDelay: `${drawDelay}s`,
+            transition: "stroke 0.2s, stroke-width 0.2s",
+          }}
+        />
+        {/* Animated flow particles when selected */}
+        {!interactionMode ? (
+          <path
+            ref={(element) => registerElement(edgeId, "ambient", element)}
+            d={path}
+            fill="none"
+            stroke={ambientStroke}
+            strokeWidth={0.9}
+            strokeDasharray="7 30"
+            className="edge-flow-ambient"
+          />
+        ) : null}
+        {!interactionMode && (selected || flowActive || mostSustainable) ? (
+          <path
+            ref={(element) => registerElement(edgeId, "flow", element)}
+            d={path}
+            fill="none"
+            stroke={flowStroke}
+            strokeWidth={
+              mostSustainable ? (selected ? 1.9 : 1.35) : selected ? 1.8 : 1.2
+            }
+            strokeDasharray={
+              selected ? "5 14" : mostSustainable ? "6 16" : "6 18"
+            }
+            className={
+              selected || mostSustainable ? "edge-flow" : "edge-flow-subtle"
+            }
+          />
+        ) : null}
+      </g>
+    )
+  },
+  (previousProps, nextProps) =>
+    previousProps.drawDelay === nextProps.drawDelay &&
+    previousProps.edgeId === nextProps.edgeId &&
+    previousProps.flowActive === nextProps.flowActive &&
+    previousProps.hovered === nextProps.hovered &&
+    previousProps.initialPath === nextProps.initialPath &&
+    previousProps.interactionMode === nextProps.interactionMode &&
+    previousProps.mostSustainable === nextProps.mostSustainable &&
+    previousProps.selected === nextProps.selected
+)
 
 // ---------------------------------------------------------------------------
 // Main graph component
@@ -1197,67 +1761,374 @@ function ConnectionEdge({
 interface SupplyChainGraphProps {
   bestEcoManufacturerByComponent: Record<string, string>
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  isPanelResizing?: boolean
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   pinnedManufacturerByComponent: Record<string, string>
+  routeVisibleByComponent: Record<string, boolean>
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
 
-type GraphDragState = {
-  type: "canvas" | "node"
-  id?: string
-  sx: number
-  sy: number
-  ix: number
-  iy: number
-  moved: boolean
-} | null
-
 export function SupplyChainGraph({
   bestEcoManufacturerByComponent,
   hoveredNodeId,
+  isPanelResizing = false,
   onHoverNode,
   onSelectNode,
   pinnedManufacturerByComponent,
+  routeVisibleByComponent,
   scenario,
   selectedNodeId,
 }: SupplyChainGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const rafRef = useRef<number | null>(null)
-  const simulationFrameRef = useRef<number | null>(null)
-  const simulationFrameCountRef = useRef(0)
-  const simulationStableFramesRef = useRef(0)
-  const simulationTimestampRef = useRef<number | null>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const sceneFrameRef = useRef<number | null>(null)
+  const drawerAnimationFrameRef = useRef<number | null>(null)
+  const sceneTimestampRef = useRef<number | null>(null)
+  const renderRefsRef = useRef(createRenderRefs())
+  const sceneRef = useRef(createSceneState())
+  const sceneNodePositionsRef = useRef(
+    new Map<string, { x: number; y: number }>()
+  )
+  const cleanFitTransformRef = useRef<GraphTransform | null>(null)
   const layoutAnchorsRef = useRef(new Map<string, { x: number; y: number }>())
-  const nodesRef = useRef<GraphNodeState[]>([])
+  const layoutNodesRef = useRef<GraphNodeState[]>([])
+  const renderedNodesRef = useRef<GraphNodeState[]>([])
+  const renderedEdgesRef = useRef<SupplyScenarioGraphEdge[]>([])
   const edgesRef = useRef<SupplyScenarioGraphEdge[]>(scenario.graph.edges)
   const viewportRef = useRef<GraphViewportSize | null>(null)
   const velocitiesRef = useRef(new Map<string, GraphVector>())
-  const autoFitAfterSimulationRef = useRef(true)
-  const velRef = useRef({ x: 0, y: 0, ts: 0, lx: 0, ly: 0 })
+  const visibleComponentIdsRef = useRef<Set<string>>(new Set())
+  const topologySignatureRef = useRef<string | null>(null)
+  const drawerPositionRef = useRef<FloatingPanelPosition | null>(null)
+  const drawerTargetPositionRef = useRef<FloatingPanelPosition | null>(null)
+  const drawerDragStateRef = useRef<FloatingPanelDragState | null>(null)
+  const manufacturerLayerVisibleRef = useRef(false)
+  const interactionModeRef = useRef(false)
+  const sceneDirtyRef = useRef(true)
   const [viewportSize, setViewportSize] = useState<GraphViewportSize | null>(
     null
   )
-  const layoutNodes = React.useMemo(
-    () => buildCompactGraphNodes(scenario.graph.nodes, viewportSize),
-    [scenario.graph.nodes, viewportSize]
+  const visibleComponentIds = React.useMemo(
+    () => createVisibleComponentIdSet(scenario, routeVisibleByComponent),
+    [routeVisibleByComponent, scenario]
   )
-  const [nodes, setNodes] = useState<GraphNodeState[]>(layoutNodes)
+  const layoutVisibleNodes = React.useMemo(
+    () =>
+      buildCompactGraphNodes(
+        filterGraphNodes(scenario.graph.nodes, visibleComponentIds, true),
+        viewportSize
+      ),
+    [scenario.graph.nodes, viewportSize, visibleComponentIds]
+  )
+  const layoutVisibleNodeById = React.useMemo(
+    () =>
+      new Map(
+        layoutVisibleNodes.map((node) => [node.id, node.position] as const)
+      ),
+    [layoutVisibleNodes]
+  )
+  const layoutNodes = React.useMemo(
+    () =>
+      scenario.graph.nodes.map((node) => ({
+        ...node,
+        position: layoutVisibleNodeById.get(node.id) ?? node.position,
+      })),
+    [layoutVisibleNodeById, scenario.graph.nodes]
+  )
+  const cleanLayoutNodes = React.useMemo(
+    () => filterGraphNodes(layoutNodes, visibleComponentIds, false),
+    [layoutNodes, visibleComponentIds]
+  )
+  const topologySignature = React.useMemo(
+    () =>
+      [
+        scenario.id,
+        scenario.graph.nodes.map((node) => node.id).join("|"),
+        Array.from(visibleComponentIds).sort().join("|"),
+      ].join("::"),
+    [scenario.graph.nodes, scenario.id, visibleComponentIds]
+  )
+  const sceneNodeById = React.useMemo(
+    () => new Map(layoutNodes.map((node) => [node.id, node] as const)),
+    [layoutNodes]
+  )
+  const [manufacturerLayerVisible, setManufacturerLayerVisible] =
+    useState(false)
+  const [animatedManufacturerIds, setAnimatedManufacturerIds] = useState<
+    Set<string>
+  >(() => new Set())
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 })
-  const [dragState, setDragState] = useState<GraphDragState>(null)
+  const [interactionMode, setInteractionMode] = useState(false)
+  const [activeDraggedNodeId, setActiveDraggedNodeId] = useState<string | null>(
+    null
+  )
+  const [isCanvasDragging, setIsCanvasDragging] = useState(false)
+  const [drawerDragState, setDrawerDragState] =
+    useState<FloatingPanelDragState | null>(null)
+  const [drawerPosition, setDrawerPosition] =
+    useState<FloatingPanelPosition | null>(null)
   const [panelVisible, setPanelVisible] = useState(false)
-  const [simulationActive, setSimulationActive] = useState(false)
-  const dragStateRef = useRef<GraphDragState>(dragState)
+  const stopInertia = useCallback(() => {
+    sceneRef.current.inertia = null
+  }, [])
+  const stopTransformAnimation = useCallback(() => {
+    sceneRef.current.transformAnimation = null
+  }, [])
+  const markSceneDirty = useCallback(() => {
+    sceneDirtyRef.current = true
+  }, [])
+  const updateInteractionMode = useCallback((nextValue: boolean) => {
+    if (interactionModeRef.current === nextValue) {
+      return
+    }
+
+    interactionModeRef.current = nextValue
+    setInteractionMode(nextValue)
+  }, [])
+  const registerNodeElement = useCallback(
+    (nodeId: string, element: HTMLDivElement | null) => {
+      if (element) {
+        renderRefsRef.current.nodes.set(nodeId, element)
+        return
+      }
+
+      renderRefsRef.current.nodes.delete(nodeId)
+    },
+    []
+  )
+  const registerEdgeElement = useCallback(
+    (
+      edgeId: string,
+      part: GraphEdgeElementPart,
+      element: SVGPathElement | null
+    ) => {
+      const edgeRefs =
+        renderRefsRef.current.edges.get(edgeId) ?? createEdgeElementRefs()
+
+      edgeRefs[part] = element
+
+      if (Object.values(edgeRefs).some(Boolean)) {
+        renderRefsRef.current.edges.set(edgeId, edgeRefs)
+        return
+      }
+
+      renderRefsRef.current.edges.delete(edgeId)
+    },
+    []
+  )
+  const setGridRef = useCallback((element: HTMLDivElement | null) => {
+    renderRefsRef.current.grid = element
+  }, [])
+  const setAmbientGlowRef = useCallback((element: HTMLDivElement | null) => {
+    renderRefsRef.current.ambientGlow = element
+  }, [])
+  const setWorldRef = useCallback((element: HTMLDivElement | null) => {
+    renderRefsRef.current.world = element
+  }, [])
+  const setZoomLabelRef = useCallback((element: HTMLSpanElement | null) => {
+    renderRefsRef.current.zoomLabel = element
+  }, [])
+  const handleHoveredEdgeChange = useCallback(
+    (edgeId: string | null) => {
+      if (sceneRef.current.dragState?.type === "node") {
+        return
+      }
+
+      setHoveredEdgeId(edgeId)
+    },
+    [setHoveredEdgeId]
+  )
+  const handleHoveredNodeChange = useCallback(
+    (nodeId: SupplyScenarioSelectableNodeId | null) => {
+      if (sceneRef.current.dragState?.type === "node") {
+        return
+      }
+
+      onHoverNode(nodeId)
+    },
+    [onHoverNode]
+  )
+  const animateTransformTo = useCallback(
+    (
+      nextTransform: {
+        scale: number
+        x: number
+        y: number
+      },
+      durationMs = 560
+    ) => {
+      stopTransformAnimation()
+
+      const startTransform = sceneRef.current.transform
+      const deltaX = nextTransform.x - startTransform.x
+      const deltaY = nextTransform.y - startTransform.y
+      const deltaScale = nextTransform.scale - startTransform.scale
+
+      if (
+        Math.abs(deltaX) < 0.5 &&
+        Math.abs(deltaY) < 0.5 &&
+        Math.abs(deltaScale) < 0.001
+      ) {
+        sceneRef.current.transform = nextTransform
+        markSceneDirty()
+        return
+      }
+
+      sceneRef.current.transformAnimation = {
+        durationMs,
+        startAt: null,
+        startTransform,
+        targetTransform: nextTransform,
+      }
+      markSceneDirty()
+    },
+    [markSceneDirty, stopTransformAnimation]
+  )
+  const stopDrawerAnimation = useCallback(() => {
+    if (drawerAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(drawerAnimationFrameRef.current)
+      drawerAnimationFrameRef.current = null
+    }
+  }, [])
+  const clampDrawerPosition = useCallback((position: FloatingPanelPosition) => {
+    const container = containerRef.current
+    const drawer = drawerRef.current
+
+    if (!container || !drawer) {
+      return position
+    }
+
+    return {
+      x: clamp(
+        position.x,
+        16,
+        Math.max(16, container.clientWidth - drawer.offsetWidth - 16)
+      ),
+      y: clamp(
+        position.y,
+        16,
+        Math.max(16, container.clientHeight - drawer.offsetHeight - 16)
+      ),
+    }
+  }, [])
+  const animateDrawerTo = useCallback(
+    (nextPosition: FloatingPanelPosition, immediate = false) => {
+      const clampedPosition = clampDrawerPosition(nextPosition)
+
+      drawerTargetPositionRef.current = clampedPosition
+
+      if (immediate) {
+        stopDrawerAnimation()
+        drawerPositionRef.current = clampedPosition
+        setDrawerPosition(clampedPosition)
+        return
+      }
+
+      if (drawerAnimationFrameRef.current !== null) {
+        return
+      }
+
+      const tick = () => {
+        const targetPosition = drawerTargetPositionRef.current
+
+        if (!targetPosition) {
+          drawerAnimationFrameRef.current = null
+          return
+        }
+
+        const currentPosition = drawerPositionRef.current ?? targetPosition
+        const deltaX = targetPosition.x - currentPosition.x
+        const deltaY = targetPosition.y - currentPosition.y
+        const nextDrawerPosition =
+          Math.abs(deltaX) < 0.6 && Math.abs(deltaY) < 0.6
+            ? targetPosition
+            : {
+                x: currentPosition.x + deltaX * 0.24,
+                y: currentPosition.y + deltaY * 0.24,
+              }
+
+        drawerPositionRef.current = nextDrawerPosition
+        setDrawerPosition(nextDrawerPosition)
+
+        if (
+          Math.abs(targetPosition.x - nextDrawerPosition.x) >= 0.6 ||
+          Math.abs(targetPosition.y - nextDrawerPosition.y) >= 0.6 ||
+          drawerDragStateRef.current
+        ) {
+          drawerAnimationFrameRef.current = requestAnimationFrame(tick)
+          return
+        }
+
+        drawerAnimationFrameRef.current = null
+      }
+
+      drawerAnimationFrameRef.current = requestAnimationFrame(tick)
+    },
+    [clampDrawerPosition, stopDrawerAnimation]
+  )
+  const renderedNodes = React.useMemo(
+    () =>
+      filterGraphNodes(
+        layoutNodes,
+        visibleComponentIds,
+        manufacturerLayerVisible
+      ),
+    [layoutNodes, manufacturerLayerVisible, visibleComponentIds]
+  )
+  const displayedNodes = React.useMemo(
+    () =>
+      renderedNodes.map((node) => ({
+        ...node,
+        position: snapGraphPosition(node.position),
+      })),
+    [renderedNodes]
+  )
+  const renderedNodeIdSet = React.useMemo(
+    () => new Set(displayedNodes.map((node) => node.id)),
+    [displayedNodes]
+  )
+  const renderedNodeById = React.useMemo(
+    () => new Map(displayedNodes.map((node) => [node.id, node] as const)),
+    [displayedNodes]
+  )
+  const renderedEdges = React.useMemo(
+    () => filterGraphEdges(scenario.graph.edges, renderedNodeIdSet),
+    [renderedNodeIdSet, scenario.graph.edges]
+  )
+  const cleanFitTransform = React.useMemo(
+    () => getFitTransform(cleanLayoutNodes, viewportSize),
+    [cleanLayoutNodes, viewportSize]
+  )
+  const manufacturerComponentById = React.useMemo(
+    () =>
+      new Map(
+        scenario.manufacturers.map(
+          (manufacturer) => [manufacturer.id, manufacturer.componentId] as const
+        )
+      ),
+    [scenario.manufacturers]
+  )
+  const componentNodeById = React.useMemo(
+    () =>
+      new Map(
+        displayedNodes
+          .filter((node) => node.data.kind === "component")
+          .map((node) => [node.id, node] as const)
+      ),
+    [displayedNodes]
+  )
 
   useEffect(() => {
-    nodesRef.current = nodes
-  }, [nodes])
+    renderedNodesRef.current = renderedNodes
+    renderedEdgesRef.current = renderedEdges
+    markSceneDirty()
+  }, [markSceneDirty, renderedEdges, renderedNodes])
 
   useEffect(() => {
-    dragStateRef.current = dragState
-  }, [dragState])
+    drawerDragStateRef.current = drawerDragState
+  }, [drawerDragState])
 
   useEffect(() => {
     edgesRef.current = scenario.graph.edges
@@ -1266,6 +2137,32 @@ export function SupplyChainGraph({
   useEffect(() => {
     viewportRef.current = viewportSize
   }, [viewportSize])
+
+  useEffect(() => {
+    visibleComponentIdsRef.current = visibleComponentIds
+  }, [visibleComponentIds])
+
+  useEffect(() => {
+    drawerPositionRef.current = drawerPosition
+  }, [drawerPosition])
+
+  useEffect(() => {
+    manufacturerLayerVisibleRef.current = manufacturerLayerVisible
+  }, [manufacturerLayerVisible])
+
+  useEffect(() => {
+    cleanFitTransformRef.current = cleanFitTransform
+  }, [cleanFitTransform])
+
+  useEffect(() => {
+    sceneRef.current.isResizeActive = isPanelResizing
+
+    if (isPanelResizing) {
+      stopInertia()
+      stopTransformAnimation()
+      markSceneDirty()
+    }
+  }, [isPanelResizing, markSceneDirty, stopInertia, stopTransformAnimation])
 
   // Measure graph viewport for responsive layout + fit
   useEffect(() => {
@@ -1292,17 +2189,209 @@ export function SupplyChainGraph({
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
-    const fittedTransform = getFitTransform(layoutNodes, viewportSize)
+  const renderScene = useCallback(() => {
+    const renderRefs = renderRefsRef.current
+    const positions = sceneNodePositionsRef.current
+    const paintedTransform = getPaintedTransform(sceneRef.current.transform)
 
-    if (fittedTransform) {
-      const frameId = window.requestAnimationFrame(() => {
-        setTransform(fittedTransform)
-      })
-
-      return () => window.cancelAnimationFrame(frameId)
+    if (renderRefs.world) {
+      renderRefs.world.style.transform = `translate(${paintedTransform.x}px, ${paintedTransform.y}px) scale(${paintedTransform.scale})`
     }
-  }, [layoutNodes, viewportSize])
+
+    if (renderRefs.zoomLabel) {
+      renderRefs.zoomLabel.textContent = `${Math.round(sceneRef.current.transform.scale * 100)}%`
+    }
+
+    if (renderRefs.grid) {
+      renderRefs.grid.style.backgroundPosition = `${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px`
+    }
+
+    const productNode =
+      sceneNodeById.get(scenario.product.id) ?? layoutNodesRef.current[0]
+
+    if (renderRefs.ambientGlow && productNode) {
+      const productPosition =
+        positions.get(productNode.id) ?? productNode.position
+      const productSize = getNodeSize(productNode)
+
+      renderRefs.ambientGlow.style.left = `${paintedTransform.x + (productPosition.x + productSize.w / 2) * paintedTransform.scale - 300}px`
+      renderRefs.ambientGlow.style.top = `${paintedTransform.y + (productPosition.y + productSize.h / 2) * paintedTransform.scale - 300}px`
+    }
+
+    renderedNodesRef.current.forEach((node) => {
+      const element = renderRefs.nodes.get(node.id)
+
+      if (!element) {
+        return
+      }
+
+      const position = snapGraphPosition(
+        positions.get(node.id) ?? node.position
+      )
+      element.style.transform = `translate3d(${position.x}px, ${position.y}px, 0)`
+    })
+
+    const activeNodeById = new Map(
+      renderedNodesRef.current.map(
+        (node) =>
+          [
+            node.id,
+            {
+              ...node,
+              position: positions.get(node.id) ?? node.position,
+            },
+          ] as const
+      )
+    )
+
+    renderedEdgesRef.current.forEach((edge) => {
+      const sourceNode = activeNodeById.get(edge.sourceId)
+      const targetNode = activeNodeById.get(edge.targetId)
+      const path =
+        sourceNode && targetNode ? getEdgePath(sourceNode, targetNode) : null
+      const edgeRefs = renderRefs.edges.get(edge.id)
+
+      if (!edgeRefs) {
+        return
+      }
+
+      ;(
+        [
+          edgeRefs.hit,
+          edgeRefs.glow,
+          edgeRefs.selectedGlow,
+          edgeRefs.main,
+          edgeRefs.ambient,
+          edgeRefs.flow,
+        ] as Array<SVGPathElement | null>
+      ).forEach((element) => {
+        if (!element) {
+          return
+        }
+
+        element.setAttribute("d", path ?? "M 0 0 L 0 0")
+        element.style.display = path ? "" : "none"
+      })
+    })
+  }, [sceneNodeById, scenario.product.id])
+
+  useEffect(() => {
+    renderScene()
+  }, [
+    activeDraggedNodeId,
+    hoveredEdgeId,
+    hoveredNodeId,
+    interactionMode,
+    manufacturerLayerVisible,
+    renderScene,
+    selectedNodeId,
+  ])
+
+  useEffect(() => {
+    const nextAnchors = new Map(
+      layoutNodes.map((node) => [node.id, { ...node.position }])
+    )
+    layoutAnchorsRef.current = nextAnchors
+    layoutNodesRef.current = layoutNodes
+
+    const topologyChanged = topologySignatureRef.current !== topologySignature
+    topologySignatureRef.current = topologySignature
+
+    if (topologyChanged) {
+      velocitiesRef.current = createVelocityMap(layoutNodes)
+      sceneNodePositionsRef.current = createNodePositionMap(layoutNodes)
+      markSceneDirty()
+      return
+    }
+
+    const previousPositions = sceneNodePositionsRef.current
+    const nextPositions = new Map<string, { x: number; y: number }>()
+
+    layoutNodes.forEach((node) => {
+      const previousPosition = previousPositions.get(node.id)
+
+      nextPositions.set(
+        node.id,
+        node.data.kind === "product"
+          ? { ...node.position }
+          : previousPosition
+            ? { ...previousPosition }
+            : { ...node.position }
+      )
+    })
+
+    const nextVelocities = new Map<string, GraphVector>()
+
+    layoutNodes.forEach((node) => {
+      const previousVelocity = velocitiesRef.current.get(node.id) ?? {
+        x: 0,
+        y: 0,
+      }
+      const dampingFactor = isPanelResizing ? 0.12 : 0.68
+
+      nextVelocities.set(node.id, {
+        x: previousVelocity.x * dampingFactor,
+        y: previousVelocity.y * dampingFactor,
+      })
+    })
+
+    velocitiesRef.current = nextVelocities
+    sceneNodePositionsRef.current = nextPositions
+    markSceneDirty()
+  }, [isPanelResizing, layoutNodes, markSceneDirty, topologySignature])
+
+  useEffect(() => {
+    if (isPanelResizing) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (sceneRef.current.dragState) {
+        return
+      }
+
+      const activeNodes = buildSceneNodes(
+        manufacturerLayerVisibleRef.current
+          ? layoutVisibleNodes
+          : cleanLayoutNodes,
+        sceneNodePositionsRef.current
+      )
+      const fittedTransform = getFitTransform(activeNodes, viewportSize)
+
+      if (!fittedTransform) {
+        return
+      }
+
+      if (!sceneRef.current.hasManualCameraInteraction) {
+        animateTransformTo(fittedTransform)
+        return
+      }
+
+      const clampedTransform = clampTransformToViewport(
+        sceneRef.current.transform,
+        activeNodes,
+        viewportSize
+      )
+
+      if (
+        clampedTransform &&
+        hasMeaningfulTransformDelta(
+          sceneRef.current.transform,
+          clampedTransform
+        )
+      ) {
+        animateTransformTo(clampedTransform, 280)
+      }
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [
+    animateTransformTo,
+    cleanLayoutNodes,
+    isPanelResizing,
+    layoutVisibleNodes,
+    viewportSize,
+  ])
 
   // Show panel with a tick of delay for animation
   useEffect(() => {
@@ -1314,6 +2403,89 @@ export function SupplyChainGraph({
     return () => window.clearTimeout(t)
   }, [selectedNodeId])
 
+  useEffect(() => {
+    if (!panelVisible || !selectedNodeId) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const container = containerRef.current
+      const drawer = drawerRef.current
+
+      if (!container || !drawer) {
+        return
+      }
+
+      const fallbackPosition = {
+        x: Math.max(16, container.clientWidth - drawer.offsetWidth - 16),
+        y: 16,
+      }
+
+      animateDrawerTo(drawerPositionRef.current ?? fallbackPosition, true)
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [animateDrawerTo, panelVisible, selectedNodeId, viewportSize])
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const activeDragState = drawerDragStateRef.current
+
+      if (!activeDragState || activeDragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      const container = containerRef.current
+
+      if (!container) {
+        return
+      }
+
+      const bounds = container.getBoundingClientRect()
+
+      animateDrawerTo({
+        x: event.clientX - bounds.left - activeDragState.offsetX,
+        y: event.clientY - bounds.top - activeDragState.offsetY,
+      })
+    }
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (drawerDragStateRef.current?.pointerId !== event.pointerId) {
+        return
+      }
+
+      setDrawerDragState(null)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp)
+    window.addEventListener("pointercancel", handlePointerUp)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+  }, [animateDrawerTo])
+
+  useEffect(() => {
+    return () => {
+      stopDrawerAnimation()
+    }
+  }, [stopDrawerAnimation])
+
+  useEffect(() => {
+    if (animatedManufacturerIds.size === 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setAnimatedManufacturerIds(new Set())
+    }, 520)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [animatedManufacturerIds])
+
   // Prevent page scroll on canvas
   useEffect(() => {
     const el = containerRef.current
@@ -1323,292 +2495,511 @@ export function SupplyChainGraph({
     return () => el.removeEventListener("wheel", prevent)
   }, [])
 
-  const stopInertia = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
-    }
-  }, [])
-
-  const stopSimulation = useCallback(() => {
-    if (simulationFrameRef.current !== null) {
-      cancelAnimationFrame(simulationFrameRef.current)
-      simulationFrameRef.current = null
-    }
-
-    simulationFrameCountRef.current = 0
-    simulationStableFramesRef.current = 0
-    simulationTimestampRef.current = null
-    setSimulationActive(false)
-  }, [])
-
-  const kickSimulation = useCallback(
-    ({ allowAutoFit = false }: { allowAutoFit?: boolean } = {}) => {
-      autoFitAfterSimulationRef.current =
-        autoFitAfterSimulationRef.current || allowAutoFit
-      simulationStableFramesRef.current = 0
-
-      if (simulationFrameRef.current !== null) {
-        return
-      }
-
-      setSimulationActive(true)
-
-      const tick = (timestamp: number) => {
-        const draggedNodeId =
-          dragStateRef.current?.type === "node" ? dragStateRef.current.id ?? null : null
-        const dtScale = clamp(
-          ((simulationTimestampRef.current
-            ? timestamp - simulationTimestampRef.current
-            : 16.667) /
-            16.667),
-          0.7,
-          1.35
-        )
-        simulationTimestampRef.current = timestamp
-
-        const { meanSpeed, nodes: nextNodes, settleThreshold } =
-          runForceSimulationStep({
-            anchors: layoutAnchorsRef.current,
-            draggedNodeId,
-            dtScale,
-            edges: edgesRef.current,
-            nodes: nodesRef.current,
-            velocities: velocitiesRef.current,
-            viewport: viewportRef.current,
-          })
-
-        nodesRef.current = nextNodes
-        setNodes(nextNodes)
-        simulationFrameCountRef.current += 1
-
-        if (!draggedNodeId && meanSpeed < settleThreshold) {
-          simulationStableFramesRef.current += 1
-        } else {
-          simulationStableFramesRef.current = 0
-        }
-
-        const frameBudgetReached =
-          simulationFrameCountRef.current >= FORCE_SIMULATION_MAX_FRAMES &&
-          !draggedNodeId
-        const settled =
-          simulationStableFramesRef.current >= FORCE_SIMULATION_SETTLE_FRAMES &&
-          !draggedNodeId
-
-        if (!frameBudgetReached && !settled) {
-          simulationFrameRef.current = requestAnimationFrame(tick)
-          return
-        }
-
-        simulationFrameRef.current = null
-        simulationFrameCountRef.current = 0
-        simulationStableFramesRef.current = 0
-        simulationTimestampRef.current = null
-        setSimulationActive(false)
-
-        if (autoFitAfterSimulationRef.current) {
-          autoFitAfterSimulationRef.current = false
-          const fittedTransform = getFitTransform(
-            nodesRef.current,
-            viewportRef.current
-          )
-
-          if (fittedTransform) {
-            setTransform(fittedTransform)
-          }
-        }
-      }
-
-      simulationFrameRef.current = requestAnimationFrame(tick)
-    },
-    []
-  )
-
   useEffect(() => {
-    layoutAnchorsRef.current = new Map(
-      layoutNodes.map((node) => [node.id, { ...node.position }])
-    )
-    simulationFrameCountRef.current = 0
-    simulationStableFramesRef.current = 0
-    simulationTimestampRef.current = null
-    velocitiesRef.current = createVelocityMap(layoutNodes)
-    nodesRef.current = layoutNodes
-    autoFitAfterSimulationRef.current = true
-    const frameId = window.requestAnimationFrame(() => {
-      setNodes(layoutNodes)
-      kickSimulation({ allowAutoFit: true })
-    })
+    const STEP_MS = 1000 / 60
+    let accumulatorMs = 0
 
-    return () => window.cancelAnimationFrame(frameId)
-  }, [kickSimulation, layoutNodes])
+    const tick = (timestamp: number) => {
+      if (sceneTimestampRef.current === null) {
+        sceneTimestampRef.current = timestamp
+      }
+
+      const deltaMs = Math.min(48, timestamp - sceneTimestampRef.current)
+      sceneTimestampRef.current = timestamp
+      accumulatorMs = Math.min(accumulatorMs + deltaMs, STEP_MS * 3)
+
+      const scene = sceneRef.current
+      const positions = sceneNodePositionsRef.current
+      const isResizeActive = scene.isResizeActive
+      let positionsChanged = false
+      let transformChanged = false
+      let shouldAnimateNodes = scene.dragState?.type === "node"
+
+      if (scene.transformAnimation) {
+        if (scene.transformAnimation.startAt === null) {
+          scene.transformAnimation.startAt = timestamp
+        }
+
+        const progress = clamp(
+          (timestamp - scene.transformAnimation.startAt) /
+            scene.transformAnimation.durationMs,
+          0,
+          1
+        )
+        const eased = 1 - Math.pow(1 - progress, 3)
+        const { startTransform, targetTransform } = scene.transformAnimation
+
+        scene.transform = {
+          scale:
+            startTransform.scale +
+            (targetTransform.scale - startTransform.scale) * eased,
+          x: startTransform.x + (targetTransform.x - startTransform.x) * eased,
+          y: startTransform.y + (targetTransform.y - startTransform.y) * eased,
+        }
+        transformChanged = true
+
+        if (progress >= 1) {
+          scene.transformAnimation = null
+        }
+      }
+
+      if (scene.dragState?.type === "canvas") {
+        const dx = scene.dragState.currentClientX - scene.dragState.startClientX
+        const dy = scene.dragState.currentClientY - scene.dragState.startClientY
+
+        if (!scene.dragState.moved && Math.hypot(dx, dy) > 4) {
+          scene.dragState.moved = true
+          scene.hasManualCameraInteraction = true
+        }
+
+        scene.transform = {
+          ...scene.transform,
+          x: scene.dragState.originTransform.x + dx,
+          y: scene.dragState.originTransform.y + dy,
+        }
+        transformChanged = true
+      } else if (scene.inertia) {
+        if (
+          Math.abs(scene.inertia.x) < 0.1 &&
+          Math.abs(scene.inertia.y) < 0.1
+        ) {
+          scene.inertia = null
+        } else {
+          scene.transform = {
+            ...scene.transform,
+            x: scene.transform.x + scene.inertia.x,
+            y: scene.transform.y + scene.inertia.y,
+          }
+          scene.inertia = {
+            x: scene.inertia.x * 0.92,
+            y: scene.inertia.y * 0.92,
+          }
+          transformChanged = true
+        }
+      }
+
+      if (scene.dragState?.type === "node") {
+        const dx = scene.dragState.currentClientX - scene.dragState.startClientX
+        const dy = scene.dragState.currentClientY - scene.dragState.startClientY
+
+        if (!scene.dragState.moved && Math.hypot(dx, dy) > 4) {
+          scene.dragState.moved = true
+        }
+
+        positions.set(scene.dragState.nodeId, {
+          x: scene.dragState.originPosition.x + dx / scene.transform.scale,
+          y: scene.dragState.originPosition.y + dy / scene.transform.scale,
+        })
+        positionsChanged = true
+      }
+
+      while (accumulatorMs >= STEP_MS) {
+        accumulatorMs -= STEP_MS
+
+        const activeNodes = buildSceneNodes(
+          filterGraphNodes(
+            layoutNodesRef.current,
+            visibleComponentIdsRef.current,
+            manufacturerLayerVisibleRef.current
+          ),
+          positions
+        )
+        const activeNodeIds = new Set(activeNodes.map((node) => node.id))
+        const draggedNodeId =
+          scene.dragState?.type === "node" ? scene.dragState.nodeId : null
+
+        if (!draggedNodeId && activeNodes.length <= 1) {
+          positionsChanged =
+            stabilizeSceneNodes(
+              activeNodes,
+              positions,
+              velocitiesRef.current
+            ) || positionsChanged
+          shouldAnimateNodes = false
+          break
+        }
+
+        const activeEdges = filterGraphEdges(edgesRef.current, activeNodeIds)
+
+        if (!draggedNodeId && activeEdges.length === 0) {
+          positionsChanged =
+            stabilizeSceneNodes(
+              activeNodes,
+              positions,
+              velocitiesRef.current
+            ) || positionsChanged
+          shouldAnimateNodes = false
+          break
+        }
+
+        const result = runForceSimulationStep({
+          anchors: layoutAnchorsRef.current,
+          draggedNodeId,
+          dtScale: 1,
+          edges: activeEdges,
+          isResizeActive,
+          nodes: activeNodes,
+          velocities: velocitiesRef.current,
+          viewport: viewportRef.current,
+        })
+
+        positionsChanged =
+          syncNodePositionMap(positions, result.nodes) || positionsChanged
+        shouldAnimateNodes =
+          Boolean(draggedNodeId) ||
+          result.meanSpeed >= result.settleThreshold ||
+          shouldAnimateNodes
+
+        if (!draggedNodeId && result.meanSpeed < result.settleThreshold) {
+          positionsChanged =
+            stabilizeSceneNodes(
+              activeNodes,
+              positions,
+              velocitiesRef.current
+            ) || positionsChanged
+          shouldAnimateNodes = false
+          break
+        }
+      }
+
+      const cleanScale = cleanFitTransformRef.current?.scale
+      const nextInteractionMode =
+        isResizeActive ||
+        Boolean(scene.dragState) ||
+        Boolean(scene.inertia) ||
+        Boolean(scene.transformAnimation) ||
+        shouldAnimateNodes
+
+      if (
+        !isResizeActive &&
+        cleanScale &&
+        !manufacturerLayerVisibleRef.current &&
+        scene.transform.scale <= cleanScale * MANUFACTURER_REVEAL_SCALE_FACTOR
+      ) {
+        manufacturerLayerVisibleRef.current = true
+        setManufacturerLayerVisible(true)
+        setAnimatedManufacturerIds(
+          nextInteractionMode
+            ? new Set()
+            : new Set(
+                layoutVisibleNodes
+                  .filter((node) => node.data.kind === "manufacturer")
+                  .map((node) => node.id)
+              )
+        )
+      }
+
+      if (
+        !isResizeActive &&
+        cleanScale &&
+        manufacturerLayerVisibleRef.current &&
+        scene.transform.scale >= cleanScale * MANUFACTURER_HIDE_SCALE_FACTOR
+      ) {
+        const componentId = selectedNodeId
+          ? manufacturerComponentById.get(selectedNodeId)
+          : null
+
+        manufacturerLayerVisibleRef.current = false
+        setManufacturerLayerVisible(false)
+        setAnimatedManufacturerIds(new Set())
+
+        if (componentId) {
+          onSelectNode(
+            (routeVisibleByComponent[componentId] ?? true)
+              ? componentId
+              : scenario.product.id
+          )
+        }
+      }
+
+      scene.interactionMode = nextInteractionMode
+      updateInteractionMode(nextInteractionMode)
+
+      if (sceneDirtyRef.current || positionsChanged || transformChanged) {
+        renderScene()
+        sceneDirtyRef.current = false
+      }
+
+      sceneFrameRef.current = requestAnimationFrame(tick)
+    }
+
+    sceneFrameRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (sceneFrameRef.current !== null) {
+        cancelAnimationFrame(sceneFrameRef.current)
+        sceneFrameRef.current = null
+      }
+
+      sceneTimestampRef.current = null
+      updateInteractionMode(false)
+    }
+  }, [
+    layoutVisibleNodes,
+    manufacturerComponentById,
+    onSelectNode,
+    renderScene,
+    routeVisibleByComponent,
+    scenario.product.id,
+    selectedNodeId,
+    updateInteractionMode,
+  ])
 
   // --- Wheel zoom/pan ---
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
+      e.preventDefault()
       stopInertia()
-      autoFitAfterSimulationRef.current = false
-      setTransform((prev) => {
-        if (e.ctrlKey || e.metaKey) {
-          const newScale = Math.min(
-            Math.max(0.15, prev.scale * Math.exp(-e.deltaY * 0.005)),
-            4
-          )
-          const wx = (e.clientX - prev.x) / prev.scale
-          const wy = (e.clientY - prev.y) / prev.scale
-          return {
-            x: e.clientX - wx * newScale,
-            y: e.clientY - wy * newScale,
-            scale: newScale,
-          }
-        }
-        return { ...prev, x: prev.x - e.deltaX, y: prev.y - e.deltaY }
-      })
+      stopTransformAnimation()
+      const containerBounds = containerRef.current?.getBoundingClientRect()
+      const pointerX = e.clientX - (containerBounds?.left ?? 0)
+      const pointerY = e.clientY - (containerBounds?.top ?? 0)
+
+      const previousTransform = sceneRef.current.transform
+      const nextScale = clamp(
+        previousTransform.scale * Math.exp(-e.deltaY * 0.0025),
+        GRAPH_MIN_SCALE,
+        GRAPH_MAX_SCALE
+      )
+
+      sceneRef.current.hasManualCameraInteraction = true
+      sceneRef.current.transform = getScaledTransformAtPoint(
+        previousTransform,
+        { x: pointerX, y: pointerY },
+        nextScale
+      )
+      markSceneDirty()
     },
-    [stopInertia]
+    [markSceneDirty, stopInertia, stopTransformAnimation]
   )
 
-  const handleZoom = useCallback((dir: "in" | "out") => {
-    autoFitAfterSimulationRef.current = false
-    setTransform((prev) => {
-      const newScale = Math.max(
-        0.15,
-        Math.min(prev.scale * (dir === "in" ? 1.25 : 0.8), 4)
+  const handleZoom = useCallback(
+    (dir: "in" | "out") => {
+      const nextScale = clamp(
+        sceneRef.current.transform.scale * (dir === "in" ? 1.25 : 0.8),
+        GRAPH_MIN_SCALE,
+        GRAPH_MAX_SCALE
       )
-      const cx = (containerRef.current?.clientWidth ?? 800) / 2
-      const cy = (containerRef.current?.clientHeight ?? 600) / 2
-      const wx = (cx - prev.x) / prev.scale
-      const wy = (cy - prev.y) / prev.scale
-      return { scale: newScale, x: cx - wx * newScale, y: cy - wy * newScale }
-    })
-  }, [])
+      const centerX = (containerRef.current?.clientWidth ?? 800) / 2
+      const centerY = (containerRef.current?.clientHeight ?? 600) / 2
+
+      sceneRef.current.hasManualCameraInteraction = true
+      animateTransformTo(
+        getScaledTransformAtPoint(
+          sceneRef.current.transform,
+          { x: centerX, y: centerY },
+          nextScale
+        ),
+        260
+      )
+    },
+    [animateTransformTo]
+  )
 
   const handleFit = useCallback(() => {
-    autoFitAfterSimulationRef.current = false
-    const fittedTransform = getFitTransform(nodes, viewportSize)
+    const fittedTransform = getFitTransform(
+      buildSceneNodes(renderedNodesRef.current, sceneNodePositionsRef.current),
+      viewportRef.current
+    )
 
     if (fittedTransform) {
-      setTransform(fittedTransform)
+      sceneRef.current.hasManualCameraInteraction = false
+      animateTransformTo(fittedTransform, 620)
     }
-  }, [nodes, viewportSize])
+  }, [animateTransformTo])
+  const handleDrawerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return
+      }
+
+      if ((event.target as HTMLElement).closest("button, a, input, textarea")) {
+        return
+      }
+
+      const container = containerRef.current
+      const drawer = drawerRef.current
+
+      if (!container || !drawer) {
+        return
+      }
+
+      const containerBounds = container.getBoundingClientRect()
+      const currentPosition = drawerPositionRef.current ?? {
+        x: drawer.offsetLeft,
+        y: drawer.offsetTop,
+      }
+
+      drawerPositionRef.current = currentPosition
+      drawerTargetPositionRef.current = currentPosition
+      setDrawerPosition(currentPosition)
+      setDrawerDragState({
+        offsetX: event.clientX - containerBounds.left - currentPosition.x,
+        offsetY: event.clientY - containerBounds.top - currentPosition.y,
+        pointerId: event.pointerId,
+      })
+      event.preventDefault()
+    },
+    [setDrawerDragState, setDrawerPosition]
+  )
 
   // --- Pointer events ---
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    stopInertia()
-    const target = e.target as HTMLElement
-    const nodeEl = target.closest(".gc-node") as HTMLElement | null
-
-    if (nodeEl) {
-      const nodeId = nodeEl.dataset.nodeId!
-      const node = nodesRef.current.find((n) => n.id === nodeId)!
-      autoFitAfterSimulationRef.current = false
-      setDragState({
-        type: "node",
-        id: nodeId,
-        sx: e.clientX,
-        sy: e.clientY,
-        ix: node.position.x,
-        iy: node.position.y,
-        moved: false,
-      })
-      kickSimulation()
-      e.stopPropagation()
-      return
-    }
-
-    velRef.current = {
-      x: 0,
-      y: 0,
-      ts: performance.now(),
-      lx: e.clientX,
-      ly: e.clientY,
-    }
-    setDragState({
-      type: "canvas",
-      sx: e.clientX,
-      sy: e.clientY,
-      ix: transform.x,
-      iy: transform.y,
-      moved: false,
-    })
-  }
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragState) return
-    const dx = e.clientX - dragState.sx
-    const dy = e.clientY - dragState.sy
-
-    if (dragState.type === "canvas") {
-      if (!dragState.moved && Math.hypot(dx, dy) > 4) {
-        autoFitAfterSimulationRef.current = false
-        setDragState((p) => p && { ...p, moved: true })
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return
       }
-      const now = performance.now()
-      const dt = now - velRef.current.ts
-      if (dt > 0) {
-        velRef.current.x = (e.clientX - velRef.current.lx) / dt
-        velRef.current.y = (e.clientY - velRef.current.ly) / dt
-      }
-      velRef.current.ts = now
-      velRef.current.lx = e.clientX
-      velRef.current.ly = e.clientY
-      setTransform((p) => ({
-        ...p,
-        x: dragState.ix + dx,
-        y: dragState.iy + dy,
-      }))
-    } else if (dragState.type === "node") {
-      if (!dragState.moved && Math.hypot(dx, dy) > 4) {
-        setDragState((p) => p && { ...p, moved: true })
-      }
-      const wdx = dx / transform.scale
-      const wdy = dy / transform.scale
-      const nextNodes = nodesRef.current.map((node) =>
-        node.id === dragState.id
-          ? {
-              ...node,
-              position: { x: dragState.ix + wdx, y: dragState.iy + wdy },
-            }
-          : node
-      )
-      nodesRef.current = nextNodes
-      setNodes(nextNodes)
-      kickSimulation()
-    }
-  }
 
-  const handlePointerUp = () => {
-    if (dragState?.type === "canvas") {
-      if (!dragState.moved) {
-        onSelectNode(null)
-      } else {
-        let vx = velRef.current.x * 16
-        let vy = velRef.current.y * 16
-        const animate = () => {
-          if (Math.abs(vx) < 0.1 && Math.abs(vy) < 0.1) return
-          vx *= 0.92
-          vy *= 0.92
-          setTransform((p) => ({ ...p, x: p.x + vx, y: p.y + vy }))
-          rafRef.current = requestAnimationFrame(animate)
+      stopInertia()
+      stopTransformAnimation()
+
+      const target = event.target as HTMLElement
+      const nodeEl = target.closest(".gc-node") as HTMLElement | null
+
+      if (nodeEl) {
+        const nodeId = nodeEl.dataset.nodeId
+        const node = nodeId ? sceneNodeById.get(nodeId) : null
+
+        if (!nodeId || !node) {
+          return
         }
-        if (Math.abs(vx) > 1 || Math.abs(vy) > 1)
-          rafRef.current = requestAnimationFrame(animate)
+
+        const currentPosition =
+          sceneNodePositionsRef.current.get(nodeId) ?? node.position
+
+        sceneRef.current.dragState = {
+          currentClientX: event.clientX,
+          currentClientY: event.clientY,
+          moved: false,
+          nodeId,
+          originPosition: { ...currentPosition },
+          pointerId: event.pointerId,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          type: "node",
+        }
+        sceneRef.current.inertia = null
+        setActiveDraggedNodeId(nodeId)
+        setIsCanvasDragging(false)
+        setHoveredEdgeId(null)
+        onHoverNode(null)
+        event.currentTarget.setPointerCapture(event.pointerId)
+        markSceneDirty()
+        event.stopPropagation()
+        return
       }
-    } else if (dragState?.type === "node") {
-      if (!dragState.moved) {
-        onSelectNode(dragState.id ?? null)
-      } else {
-        kickSimulation()
+
+      sceneRef.current.dragState = {
+        currentClientX: event.clientX,
+        currentClientY: event.clientY,
+        lastClientX: event.clientX,
+        lastClientY: event.clientY,
+        lastTs: performance.now(),
+        moved: false,
+        originTransform: { ...sceneRef.current.transform },
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        type: "canvas",
+        velocityX: 0,
+        velocityY: 0,
       }
-    }
-    setDragState(null)
-  }
+      sceneRef.current.inertia = null
+      setActiveDraggedNodeId(null)
+      setIsCanvasDragging(true)
+      event.currentTarget.setPointerCapture(event.pointerId)
+      markSceneDirty()
+    },
+    [
+      markSceneDirty,
+      onHoverNode,
+      sceneNodeById,
+      setActiveDraggedNodeId,
+      setHoveredEdgeId,
+      setIsCanvasDragging,
+      stopInertia,
+      stopTransformAnimation,
+    ]
+  )
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const activeDragState = sceneRef.current.dragState
+
+      if (!activeDragState || activeDragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      activeDragState.currentClientX = event.clientX
+      activeDragState.currentClientY = event.clientY
+
+      if (activeDragState.type === "canvas") {
+        const now = performance.now()
+        const dt = now - activeDragState.lastTs
+
+        if (dt > 0) {
+          activeDragState.velocityX =
+            (event.clientX - activeDragState.lastClientX) / dt
+          activeDragState.velocityY =
+            (event.clientY - activeDragState.lastClientY) / dt
+        }
+
+        activeDragState.lastTs = now
+        activeDragState.lastClientX = event.clientX
+        activeDragState.lastClientY = event.clientY
+      }
+
+      markSceneDirty()
+    },
+    [markSceneDirty]
+  )
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const activeDragState = sceneRef.current.dragState
+
+      if (!activeDragState || activeDragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+
+      if (activeDragState.type === "canvas") {
+        if (!activeDragState.moved) {
+          onSelectNode(null)
+        } else {
+          const velocityX = activeDragState.velocityX * 16
+          const velocityY = activeDragState.velocityY * 16
+
+          if (Math.abs(velocityX) > 1 || Math.abs(velocityY) > 1) {
+            sceneRef.current.inertia = { x: velocityX, y: velocityY }
+          }
+        }
+      } else if (!activeDragState.moved) {
+        onSelectNode(activeDragState.nodeId)
+      }
+
+      sceneRef.current.dragState = null
+      setActiveDraggedNodeId(null)
+      setIsCanvasDragging(false)
+      markSceneDirty()
+    },
+    [markSceneDirty, onSelectNode, setActiveDraggedNodeId, setIsCanvasDragging]
+  )
 
   useEffect(
     () => () => {
-      stopSimulation()
+      if (sceneFrameRef.current !== null) {
+        cancelAnimationFrame(sceneFrameRef.current)
+        sceneFrameRef.current = null
+      }
+
+      stopInertia()
+      stopTransformAnimation()
     },
-    [stopSimulation]
+    [stopInertia, stopTransformAnimation]
   )
 
   // Keyboard: Escape deselects
@@ -1621,7 +3012,9 @@ export function SupplyChainGraph({
   }, [onSelectNode])
 
   // --- Selected data ---
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId)
+  const selectedNode = selectedNodeId
+    ? (sceneNodeById.get(selectedNodeId) ?? null)
+    : null
   const selectedMfr =
     selectedNode?.data.kind === "manufacturer" ? selectedNode.data : null
   const selectedBaseNode =
@@ -1631,7 +3024,10 @@ export function SupplyChainGraph({
   const manufacturerById = React.useMemo(
     () =>
       new Map(
-        scenario.manufacturers.map((manufacturer) => [manufacturer.id, manufacturer])
+        scenario.manufacturers.map((manufacturer) => [
+          manufacturer.id,
+          manufacturer,
+        ])
       ),
     [scenario.manufacturers]
   )
@@ -1644,9 +3040,8 @@ export function SupplyChainGraph({
         component.manufacturerIds
           .map((manufacturerId) => manufacturerById.get(manufacturerId))
           .filter(
-            (
-              manufacturer
-            ): manufacturer is SupplyScenarioManufacturerNode => Boolean(manufacturer)
+            (manufacturer): manufacturer is SupplyScenarioManufacturerNode =>
+              Boolean(manufacturer)
           )
       )
     })
@@ -1654,15 +3049,7 @@ export function SupplyChainGraph({
     return nextMap
   }, [manufacturerById, scenario.components])
   const componentInsightsById = React.useMemo(() => {
-    const nextMap = new Map<
-      string,
-      {
-        best: SupplyScenarioManufacturerNode | null
-        current: SupplyScenarioManufacturerNode | null
-        manufacturers: SupplyScenarioManufacturerNode[]
-        selected: SupplyScenarioManufacturerNode | null
-      }
-    >()
+    const nextMap = new Map<string, ComponentInsight>()
 
     scenario.components.forEach((component) => {
       const manufacturers = manufacturersByComponentId.get(component.id) ?? []
@@ -1687,32 +3074,141 @@ export function SupplyChainGraph({
     pinnedManufacturerByComponent,
     scenario.components,
   ])
+  const visibleComponents = React.useMemo(
+    () =>
+      scenario.components.filter(
+        (component) => routeVisibleByComponent[component.id] ?? true
+      ),
+    [routeVisibleByComponent, scenario.components]
+  )
+  const visibleManufacturers = React.useMemo(
+    () =>
+      scenario.manufacturers.filter(
+        (manufacturer) =>
+          routeVisibleByComponent[manufacturer.componentId] ?? true
+      ),
+    [routeVisibleByComponent, scenario.manufacturers]
+  )
+  const selectedPathEntries = React.useMemo(
+    () =>
+      visibleComponents
+        .map((component) => ({
+          component,
+          insight: componentInsightsById.get(component.id),
+        }))
+        .filter((entry): entry is SelectedPathEntry => Boolean(entry.insight)),
+    [componentInsightsById, visibleComponents]
+  )
+  const selectedManufacturers = React.useMemo(
+    () =>
+      selectedPathEntries
+        .map((entry) => entry.insight.selected)
+        .filter(
+          (manufacturer): manufacturer is SupplyScenarioManufacturerNode =>
+            Boolean(manufacturer)
+        ),
+    [selectedPathEntries]
+  )
+  const currentManufacturers = React.useMemo(
+    () =>
+      selectedPathEntries
+        .map((entry) => entry.insight.current)
+        .filter(
+          (manufacturer): manufacturer is SupplyScenarioManufacturerNode =>
+            Boolean(manufacturer)
+        ),
+    [selectedPathEntries]
+  )
+  const currentRouteTotalTco2e = React.useMemo(
+    () =>
+      currentManufacturers.reduce(
+        (sum, manufacturer) => sum + getEstimatedRouteTotalTco2e(manufacturer),
+        0
+      ),
+    [currentManufacturers]
+  )
+  const selectedRouteTotalTco2e = React.useMemo(
+    () =>
+      selectedManufacturers.reduce(
+        (sum, manufacturer) => sum + getEstimatedRouteTotalTco2e(manufacturer),
+        0
+      ),
+    [selectedManufacturers]
+  )
+  const selectedRouteCountryCount = React.useMemo(
+    () =>
+      new Set(
+        selectedManufacturers.map(
+          (manufacturer) => manufacturer.location.countryCode
+        )
+      ).size,
+    [selectedManufacturers]
+  )
+  const visibleManufacturerCountryCount = React.useMemo(
+    () =>
+      new Set(
+        visibleManufacturers.map(
+          (manufacturer) => manufacturer.location.countryCode
+        )
+      ).size,
+    [visibleManufacturers]
+  )
+  const selectedAverageEcoScore = React.useMemo(
+    () =>
+      selectedManufacturers.length > 0
+        ? selectedManufacturers.reduce(
+            (sum, manufacturer) => sum + manufacturer.ecoScore,
+            0
+          ) / selectedManufacturers.length
+        : null,
+    [selectedManufacturers]
+  )
+  const statsOverlayData = React.useMemo<GraphStatsOverlayData>(() => {
+    const aggregateAccentColor =
+      selectedAverageEcoScore !== null
+        ? getEcoConfig(selectedAverageEcoScore).color
+        : "color-mix(in oklab, var(--primary) 72%, white 14%)"
+
+    return {
+      accentColor: aggregateAccentColor,
+      eyebrow: "Selected routes",
+      metrics: [
+        {
+          label: "Current q50",
+          emphasized: true,
+          value: formatTco2e(currentRouteTotalTco2e),
+        },
+        {
+          label: "Selected q50",
+          emphasized: true,
+          value: formatTco2e(selectedRouteTotalTco2e),
+        },
+      ],
+    }
+  }, [currentRouteTotalTco2e, selectedAverageEcoScore, selectedRouteTotalTco2e])
   const ecoConfig = selectedMfr ? getEcoConfig(selectedMfr.ecoScore) : null
   const drawerSectionStyle = {
-    background:
-      "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015) 16%, rgba(255,255,255,0.01) 100%)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.035), 0 12px 28px rgba(0,0,0,0.16)",
+    background: "rgba(7,12,16,0.58)",
+    border: "1px solid rgba(255,255,255,0.07)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
   }
   const drawerSurfaceStyle = {
-    backgroundColor: "rgb(9 10 16)",
+    backgroundColor: "rgb(8 11 16)",
     backgroundImage:
-      "linear-gradient(180deg, rgba(18,20,28,0.995) 0%, rgba(13,15,22,0.995) 22%, rgba(9,10,16,1) 100%)",
+      "linear-gradient(180deg, rgba(12,16,22,0.985) 0%, rgba(8,11,16,0.99) 100%)",
     border: "1px solid rgba(255,255,255,0.08)",
-    borderTop: ecoConfig ? `2px solid ${ecoConfig.color}` : undefined,
     borderRadius: "1.35rem",
     boxShadow:
-      "inset 0 1px 0 rgba(255,255,255,0.06), 0 28px 80px rgba(0,0,0,0.5)",
+      "inset 0 1px 0 rgba(255,255,255,0.04), 0 18px 42px rgba(0,0,0,0.34)",
     overflow: "hidden" as const,
   }
-  const productNode =
-    nodes.find((node) => node.id === scenario.product.id) ?? nodes[0]
+  const productNode = sceneNodeById.get(scenario.product.id) ?? layoutNodes[0]
+  const productNodePosition = productNode.position
   const productNodeSize = getNodeSize(productNode)
+  const paintedTransform = getPaintedTransform(DEFAULT_GRAPH_TRANSFORM)
 
   // Cursor
-  const cursor =
-    dragState?.type === "canvas" ? "cursor-grabbing" : "cursor-grab"
+  const cursor = isCanvasDragging ? "cursor-grabbing" : "cursor-grab"
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1753,44 +3249,22 @@ export function SupplyChainGraph({
           animation: edge-draw 0.95s cubic-bezier(0.2,0.9,0.2,1) both;
         }
 
-        @keyframes eco-pulse {
-          0%, 100% { opacity: 1;   transform: scale(1);    }
-          50%       { opacity: 0.6; transform: scale(1.08); }
+        @keyframes node-breathe {
+          0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+          50% { transform: translate3d(0, -3px, 0) scale(1.012); }
         }
-        .eco-pulse { animation: eco-pulse 4.8s ease-in-out infinite; }
-
-        @keyframes node-signal {
-          0%, 100% { opacity: 0.14; transform: scale(0.97); }
-          50% { opacity: 0.34; transform: scale(1.04); }
-        }
-        .node-signal {
-          animation: node-signal 5.8s ease-in-out infinite;
-        }
-
-        @keyframes node-idle-float {
-          0%, 100% { transform: translate3d(0, 0, 0); }
-          50% { transform: translate3d(0, -5px, 0); }
-        }
-        .node-idle-float {
-          animation: node-idle-float 7.4s ease-in-out infinite;
+        .node-breathe {
+          animation: node-breathe 11.4s ease-in-out infinite;
           will-change: transform;
         }
 
-        @keyframes node-surface-drift {
-          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.5; }
-          50% { transform: translate3d(1.2%, -1.2%, 0) scale(1.02); opacity: 0.82; }
+        @keyframes node-breathe-sheen {
+          0%, 100% { opacity: 0.28; transform: translate3d(0, 0, 0) scale(1); }
+          50% { opacity: 0.58; transform: translate3d(0, -1.5%, 0) scale(1.012); }
         }
-        .node-surface-drift {
-          animation: node-surface-drift 10.5s ease-in-out infinite;
+        .node-breathe-sheen {
+          animation: node-breathe-sheen 11.4s ease-in-out infinite;
         }
-
-        @keyframes node-pop {
-          0%   { transform: scale(0.6); opacity: 0; }
-          55%  { transform: scale(1.06); opacity: 1; }
-          80%  { transform: scale(0.97); }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        .node-pop { animation: node-pop 0.45s cubic-bezier(0.34,1.56,0.64,1) backwards; }
 
         @keyframes ambient-breathe {
           0%, 100% { opacity: 0.22; }
@@ -1821,57 +3295,72 @@ export function SupplyChainGraph({
           to   { opacity: 1; transform: translateX(0);    }
         }
         .panel-slide-in { animation: panel-slide-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+
+        @keyframes manufacturer-node-reveal {
+          0% {
+            opacity: 0;
+            transform: translate3d(var(--manufacturer-entry-x, 0px), var(--manufacturer-entry-y, 0px), 0) scale(0.72);
+          }
+          60% {
+            opacity: 1;
+            transform: translate3d(calc(var(--manufacturer-entry-x, 0px) * -0.08), calc(var(--manufacturer-entry-y, 0px) * -0.08), 0) scale(1.03);
+          }
+          100% {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+        }
+        .manufacturer-node-reveal {
+          animation: manufacturer-node-reveal 0.48s cubic-bezier(0.22,1,0.36,1) both;
+          will-change: transform, opacity;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .edge-flow,
+          .edge-flow-subtle,
+          .edge-flow-ambient,
+          .edge-draw,
+          .ambient-breathe,
+          .focus-beacon,
+          .emblem-pulse,
+          .panel-slide-in,
+          .manufacturer-node-reveal,
+          .node-breathe,
+          .node-breathe-sheen {
+            animation: none !important;
+          }
+        }
       `}</style>
 
       {/* Dot grid */}
-      <div className="pointer-events-none absolute inset-0">
-        <svg width="100%" height="100%">
-          <pattern
-            id="gc-grid-minor"
-            x={transform.x % (26 * transform.scale)}
-            y={transform.y % (26 * transform.scale)}
-            width={26 * transform.scale}
-            height={26 * transform.scale}
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M ${26 * transform.scale} 0 L 0 0 0 ${26 * transform.scale}`}
-              fill="none"
-              stroke="rgba(226,223,218,0.12)"
-              strokeWidth="1"
-            />
-          </pattern>
-          <pattern
-            id="gc-grid-major"
-            x={transform.x % (104 * transform.scale)}
-            y={transform.y % (104 * transform.scale)}
-            width={104 * transform.scale}
-            height={104 * transform.scale}
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d={`M ${104 * transform.scale} 0 L 0 0 0 ${104 * transform.scale}`}
-              fill="none"
-              stroke="rgba(246,244,240,0.18)"
-              strokeWidth="1"
-            />
-          </pattern>
-          <rect width="100%" height="100%" fill="url(#gc-grid-minor)" />
-          <rect width="100%" height="100%" fill="url(#gc-grid-major)" />
-        </svg>
-      </div>
+      <div
+        ref={setGridRef}
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(226,223,218,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(226,223,218,0.1) 1px, transparent 1px), linear-gradient(rgba(246,244,240,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(246,244,240,0.12) 1px, transparent 1px)",
+          backgroundPosition: `${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 26}px ${paintedTransform.y % 26}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px, ${paintedTransform.x % 104}px ${paintedTransform.y % 104}px`,
+          backgroundSize: "26px 26px, 26px 26px, 104px 104px, 104px 104px",
+        }}
+      />
 
       {/* Ambient radial glow at product node */}
       <div
-        className="ambient-breathe pointer-events-none absolute"
+        ref={setAmbientGlowRef}
+        className={cn(
+          "pointer-events-none absolute",
+          !interactionMode ? "ambient-breathe" : ""
+        )}
         style={{
           left:
-            transform.x +
-            (productNode.position.x + productNodeSize.w / 2) * transform.scale -
+            paintedTransform.x +
+            (productNodePosition.x + productNodeSize.w / 2) *
+              paintedTransform.scale -
             300,
           top:
-            transform.y +
-            (productNode.position.y + productNodeSize.h / 2) * transform.scale -
+            paintedTransform.y +
+            (productNodePosition.y + productNodeSize.h / 2) *
+              paintedTransform.scale -
             300,
           width: 600,
           height: 600,
@@ -1881,21 +3370,24 @@ export function SupplyChainGraph({
         }}
       />
 
+      <GraphStatsOverlay data={statsOverlayData} />
+
       {/* Canvas interaction area */}
       <div
         ref={containerRef}
         className={`absolute inset-0 ${cursor} select-none`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
+        onPointerCancel={handlePointerUp}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
       >
         {/* Transformed world layer */}
         <div
+          ref={setWorldRef}
           className="absolute top-0 left-0 origin-top-left"
           style={{
-            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            transform: `translate(${paintedTransform.x}px, ${paintedTransform.y}px) scale(${paintedTransform.scale})`,
             willChange: "transform",
           }}
         >
@@ -1973,9 +3465,9 @@ export function SupplyChainGraph({
               </marker>
             </defs>
 
-            {scenario.graph.edges.map((edge, edgeIndex) => {
-              const src = nodes.find((n) => n.id === edge.sourceId)
-              const tgt = nodes.find((n) => n.id === edge.targetId)
+            {renderedEdges.map((edge, edgeIndex) => {
+              const src = renderedNodeById.get(edge.sourceId)
+              const tgt = renderedNodeById.get(edge.targetId)
               if (!src || !tgt) return null
               const isSelected =
                 selectedNodeId === src.id || selectedNodeId === tgt.id
@@ -1985,7 +3477,8 @@ export function SupplyChainGraph({
                 hoveredNodeId === tgt.id
               const isMostSustainable =
                 (tgt.data.kind === "manufacturer" &&
-                  bestEcoManufacturerByComponent[tgt.data.componentId] === tgt.id) ||
+                  bestEcoManufacturerByComponent[tgt.data.componentId] ===
+                    tgt.id) ||
                 (src.data.kind === "product" &&
                   tgt.data.kind === "component" &&
                   !!bestEcoManufacturerByComponent[tgt.id])
@@ -1993,57 +3486,84 @@ export function SupplyChainGraph({
                 src.data.kind === "product" ||
                 (tgt.data.kind === "manufacturer" && tgt.data.isCurrent)
               return (
-                <g
+                <ConnectionEdge
                   key={edge.id}
-                  className="pointer-events-auto"
-                  onPointerEnter={() => setHoveredEdgeId(edge.id)}
-                  onPointerLeave={() => setHoveredEdgeId(null)}
-                >
-                  <ConnectionEdge
-                    drawDelay={edgeIndex * 0.08}
-                    flowActive={flowActive}
-                    mostSustainable={isMostSustainable}
-                    sourceNode={src}
-                    targetNode={tgt}
-                    selected={isSelected}
-                    hovered={isHovered}
-                  />
-                </g>
+                  drawDelay={edgeIndex * 0.08}
+                  edgeId={edge.id}
+                  flowActive={flowActive}
+                  hovered={isHovered}
+                  initialPath={getEdgePath(src, tgt)}
+                  interactionMode={interactionMode}
+                  mostSustainable={isMostSustainable}
+                  onHoverEnd={() => handleHoveredEdgeChange(null)}
+                  onHoverStart={() => handleHoveredEdgeChange(edge.id)}
+                  registerElement={registerEdgeElement}
+                  selected={isSelected}
+                />
               )
             })}
           </svg>
 
           {/* Nodes */}
-          {nodes.map((node, index) => {
+          {displayedNodes.map((node, index) => {
             const { w, h } = getNodeSize(node)
             const isSelected = selectedNodeId === node.id
             const isHovered = hoveredNodeId === node.id
-            const isDragging =
-              dragState?.type === "node" && dragState.id === node.id
+            const isDragging = activeDraggedNodeId === node.id
+            const componentNode =
+              node.data.kind === "manufacturer"
+                ? componentNodeById.get(node.data.componentId)
+                : null
+            const nodeCenter = getNodeCenter(node)
+            const componentCenter = componentNode
+              ? getNodeCenter(componentNode)
+              : null
 
             return (
               <div
                 key={node.id}
+                ref={(element) => registerNodeElement(node.id, element)}
                 data-node-id={node.id}
-                className="gc-node node-pop absolute"
-                style={{
-                  left: node.position.x,
-                  top: node.position.y,
-                  width: w,
-                  height: h,
-                  zIndex: isSelected || isDragging ? 50 : 10,
-                }}
-                onPointerEnter={() => onHoverNode(node.id)}
-                onPointerLeave={() => onHoverNode(null)}
+                className="gc-node absolute"
+                style={
+                  {
+                    "--manufacturer-entry-x": componentCenter
+                      ? `${componentCenter.x - nodeCenter.x}px`
+                      : "0px",
+                    "--manufacturer-entry-y": componentCenter
+                      ? `${componentCenter.y - nodeCenter.y}px`
+                      : "0px",
+                    left: 0,
+                    top: 0,
+                    transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0)`,
+                    width: w,
+                    height: h,
+                    willChange: "transform",
+                    zIndex: isSelected || isDragging ? 50 : 10,
+                  } as React.CSSProperties
+                }
+                onPointerEnter={() => handleHoveredNodeChange(node.id)}
+                onPointerLeave={() => handleHoveredNodeChange(null)}
               >
-                <NodeCard
-                  allowIdleFloat={!simulationActive}
-                  isDragging={isDragging}
-                  node={node}
-                  isSelected={isSelected}
-                  isHovered={isHovered}
-                  motionIndex={index}
-                />
+                <div
+                  className={cn(
+                    "h-full w-full",
+                    node.data.kind === "manufacturer" &&
+                      animatedManufacturerIds.has(node.id)
+                      ? "manufacturer-node-reveal"
+                      : ""
+                  )}
+                >
+                  <NodeCard
+                    allowIdleFloat={!interactionMode}
+                    interactionMode={interactionMode}
+                    isDragging={isDragging}
+                    node={node}
+                    isSelected={isSelected}
+                    isHovered={isHovered}
+                    motionIndex={index}
+                  />
+                </div>
               </div>
             )
           })}
@@ -2087,16 +3607,24 @@ export function SupplyChainGraph({
 
       {/* Zoom level badge */}
       <div className="dashboard-control-surface absolute bottom-32 left-16 z-20 rounded-lg px-2 py-1 sm:bottom-36">
-        <span className="font-mono text-[10px] text-white/30">
-          {Math.round(transform.scale * 100)}%
+        <span
+          ref={setZoomLabelRef}
+          className="font-mono text-[10px] text-white/30"
+        >
+          {Math.round(DEFAULT_GRAPH_TRANSFORM.scale * 100)}%
         </span>
       </div>
 
       {/* Detail panel */}
       {selectedNode && panelVisible && (
         <div
-          className="dashboard-drawer panel-slide-in absolute top-4 right-4 bottom-4 z-30 flex w-72 flex-col"
-          style={drawerSurfaceStyle}
+          ref={drawerRef}
+          className="dashboard-drawer panel-slide-in absolute z-30 flex max-h-[calc(100%-2rem)] w-[18rem] max-w-[calc(100%-2rem)] flex-col"
+          style={{
+            ...drawerSurfaceStyle,
+            left: drawerPosition?.x ?? 16,
+            top: drawerPosition?.y ?? 16,
+          }}
         >
           <div
             className="pointer-events-none absolute inset-0"
@@ -2106,7 +3634,10 @@ export function SupplyChainGraph({
             }}
           />
           {/* Panel header */}
-          <div className="relative flex items-start justify-between gap-2 border-b border-white/[0.06] p-4 pb-3">
+          <div
+            className="relative flex cursor-grab items-start justify-between gap-2 border-b border-white/[0.06] px-4 py-3 active:cursor-grabbing"
+            onPointerDown={handleDrawerPointerDown}
+          >
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[10px] font-medium tracking-[0.2em] text-white/30 uppercase">
                 {selectedMfr
@@ -2115,18 +3646,19 @@ export function SupplyChainGraph({
                     ? "Product"
                     : "Component"}
               </p>
-              <h3 className="text-sm leading-snug font-semibold text-white/90">
+              <h3 className="text-[13px] leading-snug font-semibold text-white/88">
                 {selectedMfr ? selectedMfr.name : selectedBaseNode?.label}
               </h3>
               {selectedMfr && (
-                <p className="mt-0.5 text-xs text-white/35">
+                <p className="mt-0.5 text-[11px] text-white/35">
                   {selectedMfr.location.city}, {selectedMfr.location.country}
                 </p>
               )}
             </div>
             <button
               onClick={() => onSelectNode(null)}
-              className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-white/25 transition-colors hover:bg-white/[0.06] hover:text-white/60"
+              onPointerDown={(event) => event.stopPropagation()}
+              className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.06] text-white/25 transition-colors hover:bg-white/[0.05] hover:text-white/60"
             >
               <HugeiconsIcon
                 icon={Cancel01Icon}
@@ -2137,14 +3669,14 @@ export function SupplyChainGraph({
           </div>
 
           {selectedMfr && ecoConfig && (
-            <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
               {(() => {
                 const status = getManufacturerStatusPresentation(
                   selectedMfr.isCurrent
                 )
 
                 return (
-                  <div className="flex items-center justify-end">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span
                       className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-[0.12em]"
                       style={{
@@ -2162,160 +3694,66 @@ export function SupplyChainGraph({
                       />
                       {status.label}
                     </span>
+                    <span className="dashboard-chip-muted">
+                      {selectedMfr.componentLabel}
+                    </span>
                   </div>
                 )
               })()}
 
-              {/* Eco score ring */}
-              <div
-                className="dashboard-drawer-section flex items-center gap-4 rounded-xl p-4"
-                style={{
-                  ...drawerSectionStyle,
-                  background: ecoConfig.panelBg,
-                  border: `1px solid ${ecoConfig.panelBorder}`,
-                  boxShadow:
-                    "inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 36px rgba(0,0,0,0.22)",
-                }}
-              >
-                <div className="relative flex-shrink-0">
-                  <EcoScoreRing score={selectedMfr.ecoScore} size={72} />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span
-                      className="text-base font-bold"
-                      style={{ color: ecoConfig.color }}
-                    >
-                      {selectedMfr.ecoScore}
-                    </span>
-                    <span className="text-[8px] leading-none text-white/35">
-                      /100
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <p
-                    className="text-xs font-semibold"
-                    style={{ color: ecoConfig.color }}
-                  >
-                    {ecoConfig.label}
-                  </p>
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-white/35">
-                    Composite eco
-                    <br />
-                    impact score
-                  </p>
-                </div>
-              </div>
-
-              {/* Emissions grid */}
-              <div>
-                <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
-                  Emissions
-                </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    {
-                      label: "Transport",
-                      value: `${selectedMfr.transportEmissionsTco2e}`,
-                      unit: "tCO₂e",
-                    },
-                    {
-                      label: "Mfg Median",
-                      value: `${selectedMfr.manufacturingEmissionsTco2e.q50}`,
-                      unit: "tCO₂e",
-                    },
-                    {
-                      label: "Grid Carbon",
-                      value: `${selectedMfr.gridCarbonScore}`,
-                      unit: "/100",
-                    },
-                    {
-                      label: "Climate Risk",
-                      value: `${selectedMfr.climateRiskScore}`,
-                      unit: "/100",
-                    },
-                  ].map(({ label, value, unit }) => (
-                    <div
-                      key={label}
-                      className="dashboard-drawer-section rounded-lg p-2.5"
-                      style={drawerSectionStyle}
-                    >
-                      <p className="mb-1 text-[9px] text-white/30">{label}</p>
-                      <p className="text-sm font-semibold text-white/80">
-                        {value}
-                        <span className="ml-0.5 text-[9px] font-normal text-white/25">
-                          {unit}
-                        </span>
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Mfg range */}
               <div
                 className="dashboard-drawer-section rounded-lg p-3"
-                style={drawerSectionStyle}
+                style={{
+                  ...drawerSectionStyle,
+                  border: `1px solid ${ecoConfig.panelBorder}`,
+                }}
               >
-                <p className="mb-2 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
-                  Mfg Emissions Range (tCO₂e)
-                </p>
-                <div className="flex h-8 items-end gap-1">
-                  {[
-                    {
-                      label: "P10",
-                      val: selectedMfr.manufacturingEmissionsTco2e.q10,
-                    },
-                    {
-                      label: "P50",
-                      val: selectedMfr.manufacturingEmissionsTco2e.q50,
-                    },
-                    {
-                      label: "P90",
-                      val: selectedMfr.manufacturingEmissionsTco2e.q90,
-                    },
-                  ].map(({ label, val }) => {
-                    const max = selectedMfr.manufacturingEmissionsTco2e.q90
-                    const pct = (val / max) * 100
-                    return (
+                <div className="flex items-start gap-3">
+                  <EcoScoreRing
+                    score={selectedMfr.ecoScore}
+                    size={54}
+                    strokeWidth={4}
+                  />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    {[
+                      {
+                        label: "Selected q50",
+                        value: formatTco2e(
+                          getEstimatedRouteTotalTco2e(selectedMfr)
+                        ),
+                      },
+                      {
+                        label: "Manufacturing q50",
+                        value: formatTco2e(
+                          selectedMfr.manufacturingEmissionsTco2e.q50
+                        ),
+                      },
+                      {
+                        label: "Transport",
+                        value: formatTco2e(selectedMfr.transportEmissionsTco2e),
+                      },
+                      {
+                        label: "Climate risk",
+                        value: formatScore(selectedMfr.climateRiskScore),
+                      },
+                    ].map((item) => (
                       <div
-                        key={label}
-                        className="flex flex-1 flex-col items-center gap-1"
+                        key={item.label}
+                        className="flex items-center justify-between gap-3 text-[11px]"
                       >
-                        <div
-                          className="w-full rounded-sm"
-                          style={{
-                            height: `${pct}%`,
-                            background: ecoConfig.color,
-                            opacity: label === "P50" ? 1 : 0.4,
-                          }}
-                        />
-                        <span className="text-[8px] text-white/25">
-                          {label}
+                        <span className="text-white/38">{item.label}</span>
+                        <span className="text-right font-semibold whitespace-nowrap text-white/84">
+                          {item.value}
                         </span>
                       </div>
-                    )
-                  })}
-                </div>
-                <div className="mt-1 flex justify-between">
-                  {[
-                    selectedMfr.manufacturingEmissionsTco2e.q10,
-                    selectedMfr.manufacturingEmissionsTco2e.q50,
-                    selectedMfr.manufacturingEmissionsTco2e.q90,
-                  ].map((v, i) => (
-                    <span
-                      key={i}
-                      className="font-mono text-[9px] text-white/40"
-                    >
-                      {v}
-                    </span>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Certifications */}
-              {selectedMfr.certifications.length > 0 && (
+              {selectedMfr.certifications.length > 0 ? (
                 <div>
-                  <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
+                  <p className="mb-1.5 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
                     Certifications
                   </p>
                   <div className="flex flex-wrap gap-1.5">
@@ -2326,187 +3764,126 @@ export function SupplyChainGraph({
                     ))}
                   </div>
                 </div>
-              )}
-
-              {/* Location */}
-              <div
-                className="dashboard-drawer-section rounded-lg p-3"
-                style={drawerSectionStyle}
-              >
-                <p className="mb-1.5 text-[9px] font-medium tracking-[0.15em] text-white/25 uppercase">
-                  Location
-                </p>
-                <p className="text-xs text-white/70">
-                  {selectedMfr.location.city}, {selectedMfr.location.country}
-                </p>
-                <p className="mt-0.5 font-mono text-[10px] text-white/25">
-                  {selectedMfr.location.lat.toFixed(4)},{" "}
-                  {selectedMfr.location.lng.toFixed(4)}
-                </p>
-              </div>
+              ) : null}
             </div>
           )}
 
           {!selectedMfr && (
-            <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
               {selectedBaseNode?.kind === "product" ? (
-                (() => {
-                  const selectedPath = scenario.components
-                    .map((component) => ({
-                      component,
-                      insight: componentInsightsById.get(component.id),
-                    }))
-                    .filter(
-                      (entry): entry is {
-                        component: SupplyScenarioComponentNode
-                        insight: {
-                          best: SupplyScenarioManufacturerNode | null
-                          current: SupplyScenarioManufacturerNode | null
-                          manufacturers: SupplyScenarioManufacturerNode[]
-                          selected: SupplyScenarioManufacturerNode | null
+                <>
+                  <div
+                    className="dashboard-drawer-section rounded-xl p-4"
+                    style={{
+                      ...drawerSectionStyle,
+                      background:
+                        "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
+                      borderColor:
+                        "color-mix(in oklab, var(--primary) 16%, transparent)",
+                    }}
+                  >
+                    <p className="text-xs leading-relaxed text-white/54">
+                      {scenario.quantity.toLocaleString()} {scenario.unit} of{" "}
+                      {scenario.title} route into{" "}
+                      {scenario.destination.location.city},{" "}
+                      {scenario.destination.location.country}. The current
+                      selection spans {formatCount(selectedRouteCountryCount)}{" "}
+                      countries with an estimated q50 footprint of{" "}
+                      {formatTco2e(selectedRouteTotalTco2e)} across{" "}
+                      {formatCount(selectedManufacturers.length)} active
+                      supplier nodes.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <DrawerMetricCard
+                      label="Quantity"
+                      value={`${formatCount(scenario.quantity)} ${scenario.unit}`}
+                    />
+                    <DrawerMetricCard
+                      label="Components"
+                      value={formatCount(visibleComponents.length)}
+                    />
+                    <DrawerMetricCard
+                      label="Supplier nodes"
+                      value={formatCount(visibleManufacturers.length)}
+                    />
+                    <DrawerMetricCard
+                      label="Network countries"
+                      value={formatCount(visibleManufacturerCountryCount)}
+                    />
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
+                      Component routing
+                    </p>
+                    <div className="space-y-2">
+                      {selectedPathEntries.map(({ component, insight }) => {
+                        const selectedManufacturer = insight.selected
+                        const currentManufacturer = insight.current
+                        const bestManufacturer = insight.best
+
+                        if (!selectedManufacturer) {
+                          return null
                         }
-                      } => Boolean(entry.insight)
-                    )
-                  const selectedManufacturers = selectedPath
-                    .map((entry) => entry.insight.selected)
-                    .filter(
-                      (
-                        manufacturer
-                      ): manufacturer is SupplyScenarioManufacturerNode =>
-                        Boolean(manufacturer)
-                    )
-                  const selectedTotal = selectedManufacturers.reduce(
-                    (sum, manufacturer) =>
-                      sum + getEstimatedRouteTotalTco2e(manufacturer),
-                    0
-                  )
-                  const networkCountries = new Set(
-                    scenario.manufacturers.map(
-                      (manufacturer) => manufacturer.location.countryCode
-                    )
-                  )
-                  const activeCountries = new Set(
-                    selectedManufacturers.map(
-                      (manufacturer) => manufacturer.location.countryCode
-                    )
-                  )
 
-                  return (
-                    <>
-                      <div
-                        className="dashboard-drawer-section rounded-xl p-4"
-                        style={{
-                          ...drawerSectionStyle,
-                          background:
-                            "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
-                          borderColor:
-                            "color-mix(in oklab, var(--primary) 16%, transparent)",
-                        }}
-                      >
-                        <p className="text-xs leading-relaxed text-white/54">
-                          {scenario.quantity.toLocaleString()} {scenario.unit} of{" "}
-                          {scenario.title} route into{" "}
-                          {scenario.destination.location.city},{" "}
-                          {scenario.destination.location.country}. The current
-                          selection spans {formatCount(activeCountries.size)}{" "}
-                          countries with an estimated q50 footprint of{" "}
-                          {formatTco2e(selectedTotal)} across{" "}
-                          {formatCount(selectedManufacturers.length)} active
-                          supplier nodes.
-                        </p>
-                      </div>
+                        const selectedEco = getEcoConfig(
+                          selectedManufacturer.ecoScore
+                        )
 
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <DrawerMetricCard
-                          label="Quantity"
-                          value={`${formatCount(scenario.quantity)} ${scenario.unit}`}
-                        />
-                        <DrawerMetricCard
-                          label="Components"
-                          value={formatCount(scenario.components.length)}
-                        />
-                        <DrawerMetricCard
-                          label="Supplier nodes"
-                          value={formatCount(scenario.manufacturers.length)}
-                        />
-                        <DrawerMetricCard
-                          label="Network countries"
-                          value={formatCount(networkCountries.size)}
-                        />
-                      </div>
-
-                      <div>
-                        <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
-                          Component routing
-                        </p>
-                        <div className="space-y-2">
-                          {selectedPath.map(({ component, insight }) => {
-                            const selectedManufacturer = insight.selected
-                            const currentManufacturer = insight.current
-                            const bestManufacturer = insight.best
-
-                            if (!selectedManufacturer) {
-                              return null
-                            }
-
-                            const selectedEco = getEcoConfig(
-                              selectedManufacturer.ecoScore
-                            )
-
-                            return (
-                              <div
-                                key={component.id}
-                                className="dashboard-drawer-section rounded-lg p-3"
-                                style={drawerSectionStyle}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-semibold text-white/84">
-                                      {component.label}
-                                    </p>
-                                    <p className="mt-1 text-[10px] leading-relaxed text-white/36">
-                                      Selected: {selectedManufacturer.name}
-                                    </p>
-                                    <p className="text-[10px] leading-relaxed text-white/30">
-                                      {selectedManufacturer.location.country}
-                                      {currentManufacturer &&
-                                      currentManufacturer.id !==
-                                        selectedManufacturer.id
-                                        ? ` · Current: ${currentManufacturer.name}`
-                                        : " · Current route retained"}
-                                    </p>
-                                    {bestManufacturer &&
-                                    bestManufacturer.id !==
-                                      selectedManufacturer.id ? (
-                                      <p className="text-[10px] leading-relaxed text-white/30">
-                                        Best eco: {bestManufacturer.name}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                  <div className="text-right">
-                                    <p
-                                      className="text-xs font-semibold"
-                                      style={{ color: selectedEco.color }}
-                                    >
-                                      {formatScore(selectedManufacturer.ecoScore)}
-                                    </p>
-                                    <p className="mt-1 font-mono text-[10px] text-white/38">
-                                      {formatTco2e(
-                                        getEstimatedRouteTotalTco2e(
-                                          selectedManufacturer
-                                        )
-                                      )}
-                                    </p>
-                                  </div>
-                                </div>
+                        return (
+                          <div
+                            key={component.id}
+                            className="dashboard-drawer-section rounded-lg p-3"
+                            style={drawerSectionStyle}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-white/84">
+                                  {component.label}
+                                </p>
+                                <p className="mt-1 text-[10px] leading-relaxed text-white/36">
+                                  Selected: {selectedManufacturer.name}
+                                </p>
+                                <p className="text-[10px] leading-relaxed text-white/30">
+                                  {selectedManufacturer.location.country}
+                                  {currentManufacturer &&
+                                  currentManufacturer.id !==
+                                    selectedManufacturer.id
+                                    ? ` · Current: ${currentManufacturer.name}`
+                                    : " · Current route retained"}
+                                </p>
+                                {bestManufacturer &&
+                                bestManufacturer.id !==
+                                  selectedManufacturer.id ? (
+                                  <p className="text-[10px] leading-relaxed text-white/30">
+                                    Best eco: {bestManufacturer.name}
+                                  </p>
+                                ) : null}
                               </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  )
-                })()
+                              <div className="text-right">
+                                <p
+                                  className="text-xs font-semibold"
+                                  style={{ color: selectedEco.color }}
+                                >
+                                  {formatScore(selectedManufacturer.ecoScore)}
+                                </p>
+                                <p className="mt-1 font-mono text-[10px] text-white/38">
+                                  {formatTco2e(
+                                    getEstimatedRouteTotalTco2e(
+                                      selectedManufacturer
+                                    )
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </>
               ) : selectedBaseNode?.kind === "component" ? (
                 (() => {
                   const insight = componentInsightsById.get(selectedBaseNode.id)
@@ -2519,197 +3896,97 @@ export function SupplyChainGraph({
                       (manufacturer) => manufacturer.location.countryCode
                     )
                   )
-                  const scoreRange =
-                    manufacturers.length > 0
-                      ? {
-                          max: Math.max(
-                            ...manufacturers.map(
-                              (manufacturer) => manufacturer.ecoScore
-                            )
-                          ),
-                          min: Math.min(
-                            ...manufacturers.map(
-                              (manufacturer) => manufacturer.ecoScore
-                            )
-                          ),
-                        }
-                      : null
+                  const routeCards: Array<{
+                    highlighted?: boolean
+                    label: string
+                    manufacturer: SupplyScenarioManufacturerNode
+                  }> = []
+                  const addRouteCard = (
+                    label: string,
+                    manufacturer: SupplyScenarioManufacturerNode | null,
+                    highlighted = false
+                  ) => {
+                    if (!manufacturer) {
+                      return
+                    }
+
+                    const existingCard = routeCards.find(
+                      (card) => card.manufacturer.id === manufacturer.id
+                    )
+
+                    if (existingCard) {
+                      existingCard.label = `${existingCard.label} / ${label}`
+                      existingCard.highlighted =
+                        existingCard.highlighted || highlighted
+                      return
+                    }
+
+                    routeCards.push({
+                      highlighted,
+                      label,
+                      manufacturer,
+                    })
+                  }
+
+                  addRouteCard("Selected route", selectedManufacturer, true)
+
+                  if (
+                    currentManufacturer &&
+                    currentManufacturer.id !== selectedManufacturer?.id
+                  ) {
+                    addRouteCard("Current route", currentManufacturer)
+                  }
+
+                  if (
+                    bestManufacturer &&
+                    bestManufacturer.id !== selectedManufacturer?.id &&
+                    bestManufacturer.id !== currentManufacturer?.id
+                  ) {
+                    addRouteCard("Best eco", bestManufacturer)
+                  }
 
                   return (
                     <>
-                      <div
-                        className="dashboard-drawer-section rounded-xl p-4"
-                        style={{
-                          ...drawerSectionStyle,
-                          background:
-                            "linear-gradient(180deg, color-mix(in oklab, var(--primary) 8%, rgb(18 20 28 / 0.98)), rgb(13 15 22 / 0.98))",
-                          borderColor:
-                            "color-mix(in oklab, var(--primary) 16%, transparent)",
-                        }}
-                      >
-                        <p className="text-xs leading-relaxed text-white/54">
-                          {selectedBaseNode.label} has{" "}
-                          {formatCount(manufacturers.length)} supplier options
-                          across {formatCount(countries.size)} countries.
-                          {selectedManufacturer ? (
-                            <>
-                              {" "}
-                              The active route points to{" "}
-                              {selectedManufacturer.name} in{" "}
-                              {selectedManufacturer.location.city} with an
-                              estimated q50 footprint of{" "}
-                              {formatTco2e(
-                                getEstimatedRouteTotalTco2e(selectedManufacturer)
-                              )}
-                              .
-                            </>
-                          ) : null}
-                        </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="dashboard-chip-muted">
+                          {formatCount(manufacturers.length)} suppliers
+                        </span>
+                        <span className="dashboard-chip-muted">
+                          {formatCount(countries.size)} countries
+                        </span>
+                        {selectedManufacturer &&
+                        currentManufacturer &&
+                        selectedManufacturer.id !== currentManufacturer.id ? (
+                          <span className="dashboard-chip-accent">
+                            Rerouted
+                          </span>
+                        ) : null}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <DrawerMetricCard
-                          label="Suppliers"
-                          value={formatCount(manufacturers.length)}
-                        />
-                        <DrawerMetricCard
-                          label="Countries"
-                          value={formatCount(countries.size)}
-                        />
-                        <DrawerMetricCard
-                          label="Selected eco"
-                          value={
-                            selectedManufacturer
-                              ? formatScore(selectedManufacturer.ecoScore)
-                              : "N/A"
-                          }
-                        />
-                        <DrawerMetricCard
-                          label="Eco range"
-                          value={
-                            scoreRange
-                              ? `${formatScore(scoreRange.min)}-${formatScore(scoreRange.max)}`
-                              : "N/A"
-                          }
-                        />
-                      </div>
-
-                      {selectedManufacturer || currentManufacturer || bestManufacturer ? (
-                        <div>
-                          <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
-                            Route comparison
-                          </p>
-                          <div className="space-y-2">
-                            {currentManufacturer ? (
-                              <RouteComparisonCard
-                                label="Current route"
-                                manufacturer={currentManufacturer}
-                                accent={getEcoConfig(currentManufacturer.ecoScore).color}
-                              />
-                            ) : null}
-                            {selectedManufacturer ? (
-                              <RouteComparisonCard
-                                label="Selected route"
-                                manufacturer={selectedManufacturer}
-                                accent={getEcoConfig(selectedManufacturer.ecoScore).color}
-                                highlighted
-                              />
-                            ) : null}
-                            {bestManufacturer ? (
-                              <RouteComparisonCard
-                                label="Best eco route"
-                                manufacturer={bestManufacturer}
-                                accent={getEcoConfig(bestManufacturer.ecoScore).color}
-                              />
-                            ) : null}
-                          </div>
+                      {routeCards.length > 0 ? (
+                        <div className="space-y-2">
+                          {routeCards.map((card) => (
+                            <RouteComparisonCard
+                              key={`${card.label}-${card.manufacturer.id}`}
+                              label={card.label}
+                              manufacturer={card.manufacturer}
+                              accent={
+                                getEcoConfig(card.manufacturer.ecoScore).color
+                              }
+                              highlighted={card.highlighted}
+                            />
+                          ))}
                         </div>
-                      ) : null}
-
-                      {manufacturers.length > 0 ? (
-                        <div>
-                          <p className="mb-2 text-[9px] font-medium tracking-[0.18em] text-white/25 uppercase">
-                            Supplier options
+                      ) : (
+                        <div
+                          className="dashboard-drawer-section rounded-lg p-3"
+                          style={drawerSectionStyle}
+                        >
+                          <p className="text-[11px] text-white/44">
+                            No supplier routes available for this component.
                           </p>
-                          <div className="space-y-2">
-                            {[...manufacturers]
-                              .sort((left, right) => {
-                                const statusDelta =
-                                  Number(right.isCurrent) - Number(left.isCurrent)
-
-                                if (statusDelta !== 0) {
-                                  return statusDelta
-                                }
-
-                                return left.ecoScore - right.ecoScore
-                              })
-                              .map((manufacturer) => {
-                                const manufacturerEco = getEcoConfig(
-                                  manufacturer.ecoScore
-                                )
-                                const isSelectedOption =
-                                  selectedManufacturer?.id === manufacturer.id
-                                const isBestOption =
-                                  bestManufacturer?.id === manufacturer.id
-
-                                return (
-                                  <div
-                                    key={manufacturer.id}
-                                    className="dashboard-drawer-section rounded-lg p-3"
-                                    style={{
-                                      ...drawerSectionStyle,
-                                      border: `1px solid ${isSelectedOption ? manufacturerEco.panelBorder : "rgba(255,255,255,0.06)"}`,
-                                    }}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <p className="truncate text-sm font-semibold text-white/84">
-                                          {manufacturer.name}
-                                        </p>
-                                        <p className="mt-1 text-[10px] leading-relaxed text-white/36">
-                                          {manufacturer.location.city},{" "}
-                                          {manufacturer.location.country}
-                                        </p>
-                                        <div className="mt-2 flex flex-wrap gap-1.5">
-                                          {manufacturer.isCurrent ? (
-                                            <span className="dashboard-chip-muted">
-                                              Current
-                                            </span>
-                                          ) : null}
-                                          {isSelectedOption ? (
-                                            <span className="dashboard-chip-accent">
-                                              Selected
-                                            </span>
-                                          ) : null}
-                                          {isBestOption ? (
-                                            <span className="dashboard-chip-accent">
-                                              Best eco
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                      <div className="text-right">
-                                        <p
-                                          className="text-xs font-semibold"
-                                          style={{ color: manufacturerEco.color }}
-                                        >
-                                          {formatScore(manufacturer.ecoScore)}
-                                        </p>
-                                        <p className="mt-1 font-mono text-[10px] text-white/38">
-                                          {formatTco2e(
-                                            getEstimatedRouteTotalTco2e(
-                                              manufacturer
-                                            )
-                                          )}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                          </div>
                         </div>
-                      ) : null}
+                      )}
                     </>
                   )
                 })()
@@ -2726,322 +4003,367 @@ export function SupplyChainGraph({
 // Node card renderer (extracted to keep JSX readable)
 // ---------------------------------------------------------------------------
 
-function NodeCard({
-  allowIdleFloat,
-  isDragging,
-  node,
-  isSelected,
-  isHovered,
-  motionIndex,
-}: {
-  allowIdleFloat: boolean
-  isDragging: boolean
-  node: GraphNodeState
-  isSelected: boolean
-  isHovered: boolean
-  motionIndex: number
-}) {
-  const d = node.data
+const NodeCard = React.memo(
+  function NodeCard({
+    allowIdleFloat,
+    interactionMode,
+    isDragging,
+    node,
+    isSelected,
+    isHovered,
+    motionIndex,
+  }: {
+    allowIdleFloat: boolean
+    interactionMode: boolean
+    isDragging: boolean
+    node: GraphNodeState
+    isSelected: boolean
+    isHovered: boolean
+    motionIndex: number
+  }) {
+    const d = node.data
+    const shouldFloat = !interactionMode && !isDragging && allowIdleFloat
+    const shouldEmphasize = !interactionMode && (isSelected || isHovered)
 
-  if (d.kind === "product") {
-    return (
-      <div
-        className={cn(
-          "relative flex h-full w-full flex-col items-center overflow-hidden rounded-[20px] px-3 pt-3.5 pb-4",
-          !isDragging && allowIdleFloat ? "node-idle-float" : ""
-        )}
-        style={{
-          animationDelay: `${motionIndex * 0.4}s`,
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 6%, rgba(10,10,20,0.92)), rgba(10,10,20,0.9) 46%, rgba(8,8,14,0.96) 100%)",
-          border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 42%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 24%, transparent)" : "rgba(255,255,255,0.07)"}`,
-          boxShadow: isSelected
-            ? "0 14px 30px rgba(0,0,0,0.42), 0 0 0 1px color-mix(in oklab, var(--primary) 14%, transparent), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -12px 22px rgba(0,0,0,0.18)"
-            : isHovered
-              ? "0 10px 22px rgba(0,0,0,0.38), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 18px rgba(0,0,0,0.16)"
-              : "0 4px 16px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -10px 16px rgba(0,0,0,0.14)",
-          transition: "border-color 0.3s, box-shadow 0.3s",
-        }}
-      >
+    if (d.kind === "product") {
+      return (
         <div
-          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+          className={cn(
+            "relative flex h-full w-full flex-col items-center overflow-hidden rounded-[20px] px-3 pt-3.5 pb-4",
+            shouldFloat ? "node-breathe" : ""
+          )}
           style={{
+            animationDelay: `${motionIndex * 0.3}s`,
             background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent)",
-            opacity: isSelected ? 0.82 : isHovered ? 0.58 : 0.38,
+              "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 6%, rgba(10,10,20,0.92)), rgba(10,10,20,0.9) 46%, rgba(8,8,14,0.96) 100%)",
+            border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 42%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 24%, transparent)" : "rgba(255,255,255,0.07)"}`,
+            boxShadow: interactionMode
+              ? isSelected
+                ? "0 10px 20px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.05)"
+                : isHovered
+                  ? "0 8px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04)"
+                  : "0 2px 10px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03)"
+              : isSelected
+                ? "0 14px 30px rgba(0,0,0,0.42), 0 0 0 1px color-mix(in oklab, var(--primary) 14%, transparent), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -12px 22px rgba(0,0,0,0.18)"
+                : isHovered
+                  ? "0 10px 22px rgba(0,0,0,0.38), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 18px rgba(0,0,0,0.16)"
+                  : "0 4px 16px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -10px 16px rgba(0,0,0,0.14)",
+            transition: "border-color 0.3s, box-shadow 0.3s",
           }}
-        />
-        <div
-          className="node-surface-drift pointer-events-none absolute inset-0 rounded-[20px]"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
-          }}
-        />
-        {/* Pulse ring */}
-        {isSelected && (
+        >
           <div
-            className="eco-pulse absolute inset-[2px] rounded-[18px]"
+            className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
             style={{
-              border:
-                "1px solid color-mix(in oklab, var(--primary) 12%, transparent)",
-              transform: "scale(1.02)",
+              background:
+                "linear-gradient(90deg, transparent, rgba(255,255,255,0.09), transparent)",
+              opacity: isSelected ? 0.82 : isHovered ? 0.58 : 0.38,
             }}
           />
-        )}
-        <div className="text-[9px] tracking-[0.18em] text-white/30 uppercase">
-          Product
-        </div>
-        <div className="mt-2 flex flex-1 flex-col items-center justify-center">
           <div
             className={cn(
-              "mb-2 rounded-lg p-2",
-              isSelected || isHovered ? "emblem-pulse" : ""
+              "pointer-events-none absolute inset-0 rounded-[20px]",
+              !interactionMode ? "node-breathe-sheen" : ""
             )}
             style={{
               background:
-                "color-mix(in oklab, var(--primary) 14%, transparent)",
+                "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
+            }}
+          />
+          {isSelected && (
+            <div
+              className="absolute inset-[2px] rounded-[18px]"
+              style={{
+                border:
+                  "1px solid color-mix(in oklab, var(--primary) 12%, transparent)",
+                opacity: 0.82,
+              }}
+            />
+          )}
+          <div className="text-[9px] tracking-[0.18em] text-white/30 uppercase">
+            Product
+          </div>
+          <div className="mt-2 flex flex-1 flex-col items-center justify-center">
+            <div
+              className={cn(
+                "mb-2 rounded-lg p-2",
+                shouldEmphasize ? "emblem-pulse" : ""
+              )}
+              style={{
+                background:
+                  "color-mix(in oklab, var(--primary) 14%, transparent)",
+                border:
+                  "1px solid color-mix(in oklab, var(--primary) 24%, transparent)",
+              }}
+            >
+              <HugeiconsIcon
+                icon={Leaf01Icon}
+                className="h-4 w-4 text-white/80"
+                strokeWidth={1.8}
+              />
+            </div>
+            <p className="px-2 text-center text-xs leading-tight font-semibold text-white/88">
+              {d.label}
+            </p>
+            <p className="mt-1 text-[10px] text-white/30">{d.subtitle}</p>
+          </div>
+        </div>
+      )
+    }
+
+    if (d.kind === "component") {
+      return (
+        <div
+          className={cn(
+            "relative flex h-full w-full items-center gap-2.5 overflow-hidden rounded-xl px-3",
+            shouldFloat ? "node-breathe" : ""
+          )}
+          style={{
+            animationDelay: `${motionIndex * 0.3}s`,
+            background: isSelected
+              ? "linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 5%, rgba(10,10,18,0.88)), rgba(10,10,18,0.84) 42%, rgba(8,8,14,0.9) 100%)"
+              : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 16%, transparent 22%), linear-gradient(180deg, rgba(10,10,18,0.76), rgba(10,10,18,0.72) 44%, rgba(8,8,14,0.82) 100%)",
+            border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 40%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.07)"}`,
+            boxShadow: interactionMode
+              ? isSelected
+                ? "0 8px 16px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.035)"
+                : isHovered
+                  ? "0 6px 14px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03)"
+                  : "0 2px 10px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.025)"
+              : isSelected
+                ? "0 12px 24px rgba(0,0,0,0.34), 0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -10px 18px rgba(0,0,0,0.14)"
+                : isHovered
+                  ? "0 8px 18px rgba(0,0,0,0.3), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -8px 14px rgba(0,0,0,0.12)"
+                  : "0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -8px 14px rgba(0,0,0,0.1)",
+            transition: "border-color 0.25s, box-shadow 0.25s",
+          }}
+        >
+          <div
+            className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
+              opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.38,
+            }}
+          />
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0 rounded-xl",
+              !interactionMode ? "node-breathe-sheen" : ""
+            )}
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
+            }}
+          />
+          {/* Left accent stripe */}
+          <div
+            className="absolute top-3 bottom-3 left-0 w-[2px] rounded-full"
+            style={{
+              background:
+                "linear-gradient(180deg, color-mix(in oklab, var(--primary) 82%, white 6%), color-mix(in oklab, var(--accent) 46%, transparent))",
+            }}
+          />
+          <div
+            className={cn(
+              "absolute top-3 bottom-3 left-0 w-[2px] rounded-full",
+              shouldEmphasize ? "focus-beacon" : ""
+            )}
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.18), color-mix(in oklab, var(--primary) 68%, transparent), transparent)",
+              opacity: isSelected ? 0.8 : isHovered ? 0.56 : 0,
+            }}
+          />
+          <div
+            className={cn(
+              "flex-shrink-0 rounded-lg p-1.5",
+              shouldEmphasize ? "emblem-pulse" : ""
+            )}
+            style={{
+              background:
+                "color-mix(in oklab, var(--primary) 10%, transparent)",
               border:
-                "1px solid color-mix(in oklab, var(--primary) 24%, transparent)",
+                "1px solid color-mix(in oklab, var(--primary) 18%, transparent)",
             }}
           >
             <HugeiconsIcon
-              icon={Leaf01Icon}
+              icon={PuzzleIcon}
               className="h-4 w-4 text-white/80"
               strokeWidth={1.8}
             />
           </div>
-          <p className="px-2 text-center text-xs leading-tight font-semibold text-white/88">
-            {d.label}
-          </p>
-          <p className="mt-1 text-[10px] text-white/30">{d.subtitle}</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (d.kind === "component") {
-    return (
-      <div
-        className={cn(
-          "relative flex h-full w-full items-center gap-2.5 overflow-hidden rounded-xl px-3",
-          !isDragging && allowIdleFloat ? "node-idle-float" : ""
-        )}
-        style={{
-          animationDelay: `${motionIndex * 0.4}s`,
-          background: isSelected
-            ? "linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 16%, transparent 22%), linear-gradient(180deg, color-mix(in oklab, var(--primary) 5%, rgba(10,10,18,0.88)), rgba(10,10,18,0.84) 42%, rgba(8,8,14,0.9) 100%)"
-            : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 16%, transparent 22%), linear-gradient(180deg, rgba(10,10,18,0.76), rgba(10,10,18,0.72) 44%, rgba(8,8,14,0.82) 100%)",
-          border: `1px solid ${isSelected ? "color-mix(in oklab, var(--primary) 40%, white 4%)" : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.07)"}`,
-          boxShadow: isSelected
-            ? "0 12px 24px rgba(0,0,0,0.34), 0 0 0 1px color-mix(in oklab, var(--primary) 12%, transparent), inset 0 1px 0 rgba(255,255,255,0.045), inset 0 -10px 18px rgba(0,0,0,0.14)"
-            : isHovered
-              ? "0 8px 18px rgba(0,0,0,0.3), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -8px 14px rgba(0,0,0,0.12)"
-              : "0 4px 14px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -8px 14px rgba(0,0,0,0.1)",
-          transition: "border-color 0.25s, box-shadow 0.25s",
-        }}
-      >
-        <div
-          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
-            opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.38,
-          }}
-        />
-        <div
-          className="node-surface-drift pointer-events-none absolute inset-0 rounded-xl"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.038), transparent 34%)",
-          }}
-        />
-        {/* Left accent stripe */}
-        <div
-          className="absolute top-3 bottom-3 left-0 w-[2px] rounded-full"
-          style={{
-            background:
-              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 82%, white 6%), color-mix(in oklab, var(--accent) 46%, transparent))",
-          }}
-        />
-        <div
-          className={cn(
-            "absolute top-3 bottom-3 left-0 w-[2px] rounded-full",
-            isSelected || isHovered ? "focus-beacon" : ""
-          )}
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.18), color-mix(in oklab, var(--primary) 68%, transparent), transparent)",
-            opacity: isSelected ? 0.8 : isHovered ? 0.56 : 0,
-          }}
-        />
-        <div
-          className={cn(
-            "flex-shrink-0 rounded-lg p-1.5",
-            isSelected || isHovered ? "emblem-pulse" : ""
-          )}
-          style={{
-            background: "color-mix(in oklab, var(--primary) 10%, transparent)",
-            border:
-              "1px solid color-mix(in oklab, var(--primary) 18%, transparent)",
-          }}
-        >
-          <HugeiconsIcon
-            icon={PuzzleIcon}
-            className="h-4 w-4 text-white/80"
-            strokeWidth={1.8}
-          />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-white/85">
-            {d.label}
-          </p>
-          <p className="mt-0.5 text-[9px] tracking-wide text-white/30 uppercase">
-            Component
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (d.kind === "manufacturer") {
-    const eco = getEcoConfig(d.ecoScore)
-    const status = getManufacturerStatusPresentation(d.isCurrent)
-    const manufacturerSurface = isSelected
-      ? `linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.015) 16%, transparent 24%), ${eco.panelBg}`
-      : isHovered
-        ? `linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012) 16%, transparent 24%), linear-gradient(180deg, rgba(16,16,28,0.985), rgba(11,11,21,0.97) 48%, rgba(8,8,16,0.985) 100%)`
-        : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 18%, transparent 24%), linear-gradient(180deg, rgba(13,13,24,0.985), rgba(10,10,19,0.975) 48%, rgba(8,8,15,0.988) 100%)"
-    return (
-      <div
-        className={cn(
-          "relative flex h-full w-full flex-col justify-between overflow-hidden rounded-xl p-3",
-          !isDragging && allowIdleFloat ? "node-idle-float" : ""
-        )}
-        style={{
-          animationDelay: `${motionIndex * 0.4}s`,
-          WebkitBackdropFilter:
-            isSelected || isHovered
-              ? "blur(18px) saturate(135%)"
-              : "blur(12px) saturate(115%)",
-          backdropFilter:
-            isSelected || isHovered
-              ? "blur(18px) saturate(135%)"
-              : "blur(12px) saturate(115%)",
-          background: manufacturerSurface,
-          border: `1px solid ${isSelected ? eco.panelBorder : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.10)"}`,
-          boxShadow: isSelected
-            ? `0 18px 34px rgba(0,0,0,0.54), 0 0 0 1px ${eco.panelBorder}, 0 0 28px ${eco.ring}, inset 0 1px 0 rgba(255,255,255,0.065), inset 0 -12px 22px rgba(0,0,0,0.22)`
-            : isHovered
-              ? "0 12px 24px rgba(0,0,0,0.44), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 16px rgba(0,0,0,0.16)"
-              : "0 7px 18px rgba(0,0,0,0.44), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -10px 16px rgba(0,0,0,0.14)",
-          transition:
-            "border-color 0.25s, box-shadow 0.25s, backdrop-filter 0.25s",
-        }}
-      >
-        <div
-          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)",
-            opacity: isSelected ? 0.92 : isHovered ? 0.66 : 0.42,
-          }}
-        />
-        <div
-          className="node-surface-drift pointer-events-none absolute inset-0 rounded-xl"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.04), transparent 34%)",
-          }}
-        />
-        {/* Subtle inner gradient */}
-        <div
-          className="pointer-events-none absolute inset-0 rounded-xl"
-          style={{
-            background:
-              "linear-gradient(180deg, color-mix(in oklab, var(--primary) 3%, transparent), transparent 38%)",
-          }}
-        />
-
-        <div className="relative flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p
-              className="line-clamp-2 text-[13px] leading-tight font-semibold text-white/96"
-              style={{ textShadow: "0 1px 8px rgba(0,0,0,0.34)" }}
-            >
-              {d.name}
+            <p className="truncate text-xs font-semibold text-white/85">
+              {d.label}
             </p>
-            <p
-              className="mt-0.5 text-[10px] text-white/52"
-              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.28)" }}
-            >
-              {d.location.city}, {d.location.country}
+            <p className="mt-0.5 text-[9px] tracking-wide text-white/30 uppercase">
+              Component
             </p>
           </div>
-          <span
-            className="flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold tracking-wide"
-            style={{
-              background: status.badgeBackground,
-              color: status.badgeText,
-              border: `1px solid ${status.badgeBorder}`,
-            }}
-          >
-            <span
-              className={cn(
-                "eco-pulse inline-block h-1 w-1 rounded-full",
-                status.pulseClassName
-              )}
-            />
-            {status.label}
-          </span>
         </div>
+      )
+    }
 
+    if (d.kind === "manufacturer") {
+      const eco = getEcoConfig(d.ecoScore)
+      const status = getManufacturerStatusPresentation(d.isCurrent)
+      const manufacturerSurface = isSelected
+        ? `linear-gradient(180deg, rgba(255,255,255,0.065), rgba(255,255,255,0.015) 16%, transparent 24%), ${eco.panelBg}`
+        : isHovered
+          ? `linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012) 16%, transparent 24%), linear-gradient(180deg, rgba(16,16,28,0.985), rgba(11,11,21,0.97) 48%, rgba(8,8,16,0.985) 100%)`
+          : "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008) 18%, transparent 24%), linear-gradient(180deg, rgba(13,13,24,0.985), rgba(10,10,19,0.975) 48%, rgba(8,8,15,0.988) 100%)"
+      return (
         <div
-          className="relative flex items-center gap-2 pt-2"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.10)" }}
+          className={cn(
+            "relative flex h-full w-full flex-col justify-between overflow-hidden rounded-xl p-3",
+            shouldFloat ? "node-breathe" : ""
+          )}
+          style={{
+            animationDelay: `${motionIndex * 0.3}s`,
+            WebkitBackdropFilter: interactionMode
+              ? "none"
+              : isSelected || isHovered
+                ? "blur(18px) saturate(135%)"
+                : "blur(12px) saturate(115%)",
+            backdropFilter: interactionMode
+              ? "none"
+              : isSelected || isHovered
+                ? "blur(18px) saturate(135%)"
+                : "blur(12px) saturate(115%)",
+            background: manufacturerSurface,
+            border: `1px solid ${isSelected ? eco.panelBorder : isHovered ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "rgba(255,255,255,0.10)"}`,
+            boxShadow: interactionMode
+              ? isSelected
+                ? `0 10px 20px rgba(0,0,0,0.34), 0 0 0 1px ${eco.panelBorder}, inset 0 1px 0 rgba(255,255,255,0.045)`
+                : isHovered
+                  ? "0 8px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04)"
+                  : "0 3px 12px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.03)"
+              : isSelected
+                ? `0 18px 34px rgba(0,0,0,0.54), 0 0 0 1px ${eco.panelBorder}, 0 0 28px ${eco.ring}, inset 0 1px 0 rgba(255,255,255,0.065), inset 0 -12px 22px rgba(0,0,0,0.22)`
+                : isHovered
+                  ? "0 12px 24px rgba(0,0,0,0.44), 0 0 0 1px color-mix(in oklab, var(--accent) 10%, transparent), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -10px 16px rgba(0,0,0,0.16)"
+                  : "0 7px 18px rgba(0,0,0,0.44), inset 0 1px 0 rgba(255,255,255,0.035), inset 0 -10px 16px rgba(0,0,0,0.14)",
+            transition: interactionMode
+              ? "border-color 0.2s, box-shadow 0.2s"
+              : "border-color 0.25s, box-shadow 0.25s, backdrop-filter 0.25s",
+          }}
         >
-          <div className="flex-1">
-            <p className="mb-0.5 text-[9px] text-white/42">Eco Score</p>
-            <div className="flex items-center gap-1.5">
-              {/* Mini bar */}
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.11]">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
+          <div
+            className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent)",
+              opacity: isSelected ? 0.92 : isHovered ? 0.66 : 0.42,
+            }}
+          />
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0 rounded-xl",
+              !interactionMode ? "node-breathe-sheen" : ""
+            )}
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.04), transparent 34%)",
+            }}
+          />
+          {/* Subtle inner gradient */}
+          <div
+            className="pointer-events-none absolute inset-0 rounded-xl"
+            style={{
+              background:
+                "linear-gradient(180deg, color-mix(in oklab, var(--primary) 3%, transparent), transparent 38%)",
+            }}
+          />
+
+          <div className="relative flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p
+                className="line-clamp-2 text-[13px] leading-tight font-semibold text-white/96"
+                style={{ textShadow: "0 1px 8px rgba(0,0,0,0.34)" }}
+              >
+                {d.name}
+              </p>
+              <p
+                className="mt-0.5 text-[10px] text-white/52"
+                style={{ textShadow: "0 1px 6px rgba(0,0,0,0.28)" }}
+              >
+                {d.location.city}, {d.location.country}
+              </p>
+            </div>
+            <span
+              className="flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[8px] font-bold tracking-wide"
+              style={{
+                background: status.badgeBackground,
+                color: status.badgeText,
+                border: `1px solid ${status.badgeBorder}`,
+              }}
+            >
+              <span
+                className={cn(
+                  "eco-pulse inline-block h-1 w-1 rounded-full",
+                  status.pulseClassName
+                )}
+              />
+              {status.label}
+            </span>
+          </div>
+
+          <div
+            className="relative flex items-center gap-2 pt-2"
+            style={{ borderTop: "1px solid rgba(255,255,255,0.10)" }}
+          >
+            <div className="flex-1">
+              <p className="mb-0.5 text-[9px] text-white/42">Eco Score</p>
+              <div className="flex items-center gap-1.5">
+                {/* Mini bar */}
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.11]">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${d.ecoScore}%`,
+                      background: eco.color,
+                      boxShadow: `0 0 4px ${eco.color}`,
+                    }}
+                  />
+                </div>
+                <span
+                  className="text-[11px] font-bold tabular-nums"
                   style={{
-                    width: `${d.ecoScore}%`,
-                    background: eco.color,
-                    boxShadow: `0 0 4px ${eco.color}`,
+                    color: eco.color,
+                    textShadow: `0 0 10px ${eco.ring}`,
                   }}
+                >
+                  {d.ecoScore}
+                </span>
+              </div>
+            </div>
+            <div className="flex-shrink-0">
+              <div
+                className="flex h-7 w-7 items-center justify-center rounded-lg"
+                style={{ background: eco.bg, border: `1px solid ${eco.ring}` }}
+              >
+                <HugeiconsIcon
+                  icon={Factory01Icon}
+                  className="h-3.5 w-3.5"
+                  strokeWidth={1.8}
+                  style={{ color: eco.color }}
                 />
               </div>
-              <span
-                className="text-[11px] font-bold tabular-nums"
-                style={{
-                  color: eco.color,
-                  textShadow: `0 0 10px ${eco.ring}`,
-                }}
-              >
-                {d.ecoScore}
-              </span>
-            </div>
-          </div>
-          <div className="flex-shrink-0">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-lg"
-              style={{ background: eco.bg, border: `1px solid ${eco.ring}` }}
-            >
-              <HugeiconsIcon
-                icon={Factory01Icon}
-                className="h-3.5 w-3.5"
-                strokeWidth={1.8}
-                style={{ color: eco.color }}
-              />
             </div>
           </div>
         </div>
-      </div>
-    )
-  }
+      )
+    }
 
-  return null
-}
+    return null
+  },
+  (previousProps, nextProps) =>
+    previousProps.allowIdleFloat === nextProps.allowIdleFloat &&
+    previousProps.interactionMode === nextProps.interactionMode &&
+    previousProps.isDragging === nextProps.isDragging &&
+    previousProps.isHovered === nextProps.isHovered &&
+    previousProps.isSelected === nextProps.isSelected &&
+    previousProps.motionIndex === nextProps.motionIndex &&
+    previousProps.node.id === nextProps.node.id &&
+    previousProps.node.data === nextProps.node.data
+)

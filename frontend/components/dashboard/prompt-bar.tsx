@@ -1,6 +1,6 @@
 "use client"
 
-import { type ComponentProps, type FormEvent } from "react"
+import { type ComponentProps, type FormEvent, useRef } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Message02Icon } from "@hugeicons/core-free-icons"
 
@@ -27,10 +27,14 @@ export function PromptBar({
   value,
   ...props
 }: PromptBarProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
     if (!pending && value.trim()) {
       onSubmit()
+      inputRef.current?.blur()
     }
   }
 
@@ -45,6 +49,8 @@ export function PromptBar({
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <Input
+            ref={inputRef}
+            data-kimi-prompt-input="true"
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
             placeholder={placeholder ?? "Describe the scenario edit you want to apply"}

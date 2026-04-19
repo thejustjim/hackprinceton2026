@@ -1,9 +1,17 @@
 "use client"
 
-import { startTransition, useMemo, useState } from "react"
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import Link from "next/link"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Download04Icon } from "@hugeicons/core-free-icons"
+import { useDefaultLayout } from "react-resizable-panels"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
@@ -14,10 +22,24 @@ import {
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { Button } from "@/components/ui/button"
 import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useSmoothedHandleIndicator,
+} from "@/components/ui/resizable"
+import {
   type SupplyScenario,
   type SupplyScenarioSelectableNodeId,
 } from "@/lib/supply-chain-scenario"
 import { cn } from "@/lib/utils"
+
+const DASHBOARD_MAIN_SPLIT_ID = "dashboard-main-split"
+const DASHBOARD_GRAPH_PANEL_ID = "dashboard-graph-panel"
+const DASHBOARD_GLOBE_PANEL_ID = "dashboard-globe-panel"
+const DASHBOARD_MAIN_SPLIT_DEFAULT = {
+  [DASHBOARD_GRAPH_PANEL_ID]: 60,
+  [DASHBOARD_GLOBE_PANEL_ID]: 40,
+}
 
 interface DashboardShellProps {
   error: string | null
@@ -103,6 +125,41 @@ function createBestEcoManufacturerByComponent(scenario: SupplyScenario) {
   )
 }
 
+function createComponentBooleanMap(
+  scenario: SupplyScenario | null,
+  overrides: Record<string, boolean>,
+  defaultValue: boolean
+) {
+  if (!scenario) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    scenario.components.map((component) => [
+      component.id,
+      overrides[component.id] ?? defaultValue,
+    ])
+  )
+}
+
+function getLinkedComponentId(
+  scenario: SupplyScenario | null,
+  manufacturerComponentById: Map<string, string>,
+  nodeId: SupplyScenarioSelectableNodeId | null
+) {
+  if (!scenario || !nodeId || nodeId === scenario.product.id) {
+    return null
+  }
+
+  const component = scenario.components.find((item) => item.id === nodeId)
+
+  if (component) {
+    return component.id
+  }
+
+  return manufacturerComponentById.get(nodeId) ?? null
+}
+
 export function DashboardShell({
   error,
   onDownloadReport,
@@ -128,18 +185,62 @@ export function DashboardShell({
     useState<SupplyScenarioSelectableNodeId | null>(null)
   const [hoveredNodeId, setHoveredNodeId] =
     useState<SupplyScenarioSelectableNodeId | null>(null)
+  const [isDesktopLayout, setIsDesktopLayout] = useState(false)
+  const [isDashboardResizing, setIsDashboardResizing] = useState(false)
+  const dashboardResizeTimeoutRef = useRef<number | null>(null)
+  const dashboardSplitRef = useRef<HTMLDivElement>(null)
+  const {
+    defaultLayout: persistedDashboardLayout,
+    onLayoutChanged: persistDashboardLayout,
+  } = useDefaultLayout({
+    id: DASHBOARD_MAIN_SPLIT_ID,
+    panelIds: [DASHBOARD_GRAPH_PANEL_ID, DASHBOARD_GLOBE_PANEL_ID],
+  })
+  const {
+    measure: measureDashboardHandleIndicator,
+    position: dashboardHandleIndicatorPosition,
+    targetPosition: dashboardHandleTargetPosition,
+  } = useSmoothedHandleIndicator(dashboardSplitRef)
   const basePinnedManufacturerByComponent = useMemo(
     () => (scenario ? createPinnedManufacturerByComponent(scenario) : {}),
     [scenario]
   )
   const [pinnedManufacturerOverrides, setPinnedManufacturerOverrides] =
     useState<Record<string, string>>({})
+  const [routeVisibleOverrides, setRouteVisibleOverrides] = useState<
+    Record<string, boolean>
+  >({})
+  const [routeCollapsedOverrides, setRouteCollapsedOverrides] = useState<
+    Record<string, boolean>
+  >({})
+  const validManufacturerIds = useMemo(
+    () =>
+      new Set(
+        scenario?.manufacturers.map((manufacturer) => manufacturer.id) ?? []
+      ),
+    [scenario]
+  )
+  const validNodeIds = useMemo(
+    () => new Set(scenario?.graph.nodes.map((node) => node.id) ?? []),
+    [scenario]
+  )
   const pinnedManufacturerByComponent = useMemo(
-    () => ({
-      ...basePinnedManufacturerByComponent,
-      ...pinnedManufacturerOverrides,
-    }),
-    [basePinnedManufacturerByComponent, pinnedManufacturerOverrides]
+    () =>
+      Object.fromEntries(
+        Object.entries({
+          ...basePinnedManufacturerByComponent,
+          ...pinnedManufacturerOverrides,
+        }).filter(
+          ([componentId, manufacturerId]) =>
+            componentId in basePinnedManufacturerByComponent &&
+            validManufacturerIds.has(manufacturerId)
+        )
+      ),
+    [
+      basePinnedManufacturerByComponent,
+      pinnedManufacturerOverrides,
+      validManufacturerIds,
+    ]
   )
   const bestEcoManufacturerByComponent = useMemo(
     () => (scenario ? createBestEcoManufacturerByComponent(scenario) : {}),
@@ -157,11 +258,145 @@ export function DashboardShell({
         : new Map<string, string>(),
     [scenario]
   )
+  const routeVisibleByComponent = useMemo(
+    () => createComponentBooleanMap(scenario, routeVisibleOverrides, true),
+    [routeVisibleOverrides, scenario]
+  )
+  const routeCollapsedByComponent = useMemo(
+    () => createComponentBooleanMap(scenario, routeCollapsedOverrides, true),
+    [routeCollapsedOverrides, scenario]
+  )
+  const resolvedSelectedNodeId =
+    selectedNodeId && validNodeIds.has(selectedNodeId) ? selectedNodeId : null
+  const resolvedHoveredNodeId =
+    hoveredNodeId && validNodeIds.has(hoveredNodeId) ? hoveredNodeId : null
   const reportStatusText =
     reportError ||
     (reportPending && reportProgress ? reportProgress.label : null) ||
     scenario?.updatedAt ||
     null
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 1024px)")
+    const syncLayoutMode = () => setIsDesktopLayout(mediaQuery.matches)
+
+    syncLayoutMode()
+    mediaQuery.addEventListener("change", syncLayoutMode)
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncLayoutMode)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!scenario) {
+      return
+    }
+
+    const selectedComponentId = getLinkedComponentId(
+      scenario,
+      manufacturerComponentById,
+      selectedNodeId
+    )
+    const hoveredComponentId = getLinkedComponentId(
+      scenario,
+      manufacturerComponentById,
+      hoveredNodeId
+    )
+
+    if (
+      selectedComponentId &&
+      !(routeVisibleByComponent[selectedComponentId] ?? true)
+    ) {
+      const frameId = window.requestAnimationFrame(() => {
+        setSelectedNodeId((currentNodeId) =>
+          currentNodeId === scenario.product.id
+            ? currentNodeId
+            : scenario.product.id
+        )
+
+        if (
+          hoveredComponentId &&
+          !(routeVisibleByComponent[hoveredComponentId] ?? true)
+        ) {
+          setHoveredNodeId(null)
+        }
+      })
+
+      return () => window.cancelAnimationFrame(frameId)
+    }
+
+    if (
+      hoveredComponentId &&
+      !(routeVisibleByComponent[hoveredComponentId] ?? true)
+    ) {
+      const frameId = window.requestAnimationFrame(() => {
+        setHoveredNodeId(null)
+      })
+
+      return () => window.cancelAnimationFrame(frameId)
+    }
+  }, [
+    hoveredNodeId,
+    manufacturerComponentById,
+    routeVisibleByComponent,
+    scenario,
+    selectedNodeId,
+  ])
+
+  const stopDashboardResizeTracking = useCallback(() => {
+    if (dashboardResizeTimeoutRef.current !== null) {
+      window.clearTimeout(dashboardResizeTimeoutRef.current)
+      dashboardResizeTimeoutRef.current = null
+    }
+
+    setIsDashboardResizing(false)
+  }, [])
+
+  const markDashboardResizeActive = useCallback(() => {
+    setIsDashboardResizing(true)
+
+    if (dashboardResizeTimeoutRef.current !== null) {
+      window.clearTimeout(dashboardResizeTimeoutRef.current)
+    }
+
+    dashboardResizeTimeoutRef.current = window.setTimeout(() => {
+      dashboardResizeTimeoutRef.current = null
+      setIsDashboardResizing(false)
+    }, 180)
+  }, [])
+
+  const handleDashboardLayoutChange = useCallback(() => {
+    markDashboardResizeActive()
+    measureDashboardHandleIndicator()
+  }, [markDashboardResizeActive, measureDashboardHandleIndicator])
+
+  const handleDashboardLayoutChanged = useCallback(
+    (layout: Record<string, number>) => {
+      persistDashboardLayout(layout)
+      measureDashboardHandleIndicator()
+      stopDashboardResizeTracking()
+    },
+    [
+      measureDashboardHandleIndicator,
+      persistDashboardLayout,
+      stopDashboardResizeTracking,
+    ]
+  )
+
+  useEffect(() => stopDashboardResizeTracking, [stopDashboardResizeTracking])
+
+  useEffect(() => {
+    if (!isDesktopLayout) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      measureDashboardHandleIndicator()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isDesktopLayout, measureDashboardHandleIndicator])
 
   function handleSelectNode(nodeId: SupplyScenarioSelectableNodeId | null) {
     const componentId = nodeId ? manufacturerComponentById.get(nodeId) : null
@@ -185,6 +420,69 @@ export function DashboardShell({
   function handleHoverNode(nodeId: SupplyScenarioSelectableNodeId | null) {
     setHoveredNodeId(nodeId)
   }
+
+  function handleToggleRouteVisible(componentId: string) {
+    setRouteVisibleOverrides((previousState) => ({
+      ...previousState,
+      [componentId]: !(previousState[componentId] ?? true),
+    }))
+  }
+
+  function handleToggleRouteCollapsed(componentId: string) {
+    setRouteCollapsedOverrides((previousState) => ({
+      ...previousState,
+      [componentId]: !(previousState[componentId] ?? true),
+    }))
+  }
+
+  const graphPanel = scenario ? (
+    <GraphView
+      bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
+      className="h-full min-h-0"
+      hoveredNodeId={resolvedHoveredNodeId}
+      isPanelResizing={isDashboardResizing}
+      onHoverNode={handleHoverNode}
+      onPromptChange={onPromptChange}
+      onPromptSubmit={onPromptSubmit}
+      onSelectNode={handleSelectNode}
+      promptError={promptError}
+      promptPending={promptPending}
+      promptPlaceholder={promptPlaceholder}
+      promptValue={promptValue}
+      pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+      routeVisibleByComponent={routeVisibleByComponent}
+      scenario={scenario}
+      selectedNodeId={resolvedSelectedNodeId}
+    />
+  ) : null
+
+  const globePanel = scenario ? (
+    <GlobeView
+      bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
+      className="h-full min-h-0"
+      hoveredNodeId={resolvedHoveredNodeId}
+      onHoverNode={handleHoverNode}
+      onSelectNode={handleSelectNode}
+      onToggleRouteCollapsed={handleToggleRouteCollapsed}
+      onToggleRouteVisible={handleToggleRouteVisible}
+      pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+      routeCollapsedByComponent={routeCollapsedByComponent}
+      routeVisibleByComponent={routeVisibleByComponent}
+      scenario={scenario}
+      selectedNodeId={resolvedSelectedNodeId}
+    />
+  ) : null
+
+  const dashboardHandleLagOffset =
+    dashboardHandleIndicatorPosition && dashboardHandleTargetPosition
+      ? Math.max(
+          -4,
+          Math.min(
+            4,
+            dashboardHandleIndicatorPosition.x - dashboardHandleTargetPosition.x
+          )
+        )
+      : 0
 
   return (
     <main className="dashboard-shell h-svh">
@@ -333,34 +631,68 @@ export function DashboardShell({
         ) : null}
 
         {scenario ? (
-          <section className="grid min-h-0 flex-1 grid-rows-2 gap-4 lg:grid-cols-[1.45fr_minmax(400px,0.95fr)] lg:grid-rows-1">
-            <GraphView
-              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
-              className="h-full min-h-0"
-              hoveredNodeId={hoveredNodeId}
-              onHoverNode={handleHoverNode}
-              onPromptChange={onPromptChange}
-              onPromptSubmit={onPromptSubmit}
-              onSelectNode={handleSelectNode}
-              promptError={promptError}
-              promptPending={promptPending}
-              promptPlaceholder={promptPlaceholder}
-              promptValue={promptValue}
-              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
-              scenario={scenario}
-              selectedNodeId={selectedNodeId}
-            />
-            <GlobeView
-              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
-              className="h-full min-h-0"
-              hoveredNodeId={hoveredNodeId}
-              onHoverNode={handleHoverNode}
-              onSelectNode={handleSelectNode}
-              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
-              scenario={scenario}
-              selectedNodeId={selectedNodeId}
-            />
-          </section>
+          isDesktopLayout ? (
+            <div ref={dashboardSplitRef} className="relative min-h-0 flex-1">
+              <ResizablePanelGroup
+                id={DASHBOARD_MAIN_SPLIT_ID}
+                className="min-h-0 flex-1"
+                defaultLayout={
+                  persistedDashboardLayout ?? DASHBOARD_MAIN_SPLIT_DEFAULT
+                }
+                onLayoutChange={handleDashboardLayoutChange}
+                onLayoutChanged={handleDashboardLayoutChanged}
+              >
+                <ResizablePanel
+                  id={DASHBOARD_GRAPH_PANEL_ID}
+                  className="min-h-0"
+                  minSize="35%"
+                >
+                  <div className="h-full min-h-0 pr-2">{graphPanel}</div>
+                </ResizablePanel>
+                <ResizableHandle className="mx-0.5 w-3 rounded-full bg-transparent after:w-6" />
+                <ResizablePanel
+                  id={DASHBOARD_GLOBE_PANEL_ID}
+                  className="min-h-0"
+                  minSize="30%"
+                >
+                  <div className="h-full min-h-0 pl-2">{globePanel}</div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+              {dashboardHandleTargetPosition ? (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute z-20 transition-opacity duration-150"
+                  style={{
+                    left: dashboardHandleTargetPosition.x - 6,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                  }}
+                >
+                  <span
+                    className={cn(
+                      "flex w-3 items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[height,background-color,box-shadow] duration-200",
+                      isDashboardResizing ? "h-24 bg-white/[0.08]" : "h-16"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "block w-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[height,background-color,box-shadow] duration-200",
+                        isDashboardResizing ? "h-24 bg-white/[0.3]" : "h-16"
+                      )}
+                      style={{
+                        transform: `translateX(${dashboardHandleLagOffset}px)`,
+                      }}
+                    />
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <section className="grid min-h-0 flex-1 grid-rows-2 gap-4">
+              {graphPanel}
+              {globePanel}
+            </section>
+          )
         ) : (
           <section className="panel-surface flex min-h-0 flex-1 items-center justify-center rounded-2xl">
             <div className="max-w-md text-center">

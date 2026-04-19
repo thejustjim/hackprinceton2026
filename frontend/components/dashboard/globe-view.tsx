@@ -1,10 +1,18 @@
 "use client"
 
+import { useCallback, useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { MapsGlobal01Icon, Route03Icon } from "@hugeicons/core-free-icons"
+import { useDefaultLayout } from "react-resizable-panels"
 
 import { InteractiveGlobe } from "@/components/dashboard/interactive-globe"
 import { Button } from "@/components/ui/button"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+  useSmoothedHandleIndicator,
+} from "@/components/ui/resizable"
 import { getEcoDotStyles, getEcoSelectionStyles } from "@/lib/eco-visuals"
 import {
   type SupplyScenario,
@@ -20,7 +28,11 @@ interface GlobeViewProps {
   hoveredNodeId: SupplyScenarioSelectableNodeId | null
   onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
   onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onToggleRouteCollapsed: (componentId: string) => void
+  onToggleRouteVisible: (componentId: string) => void
   pinnedManufacturerByComponent: Record<string, string>
+  routeCollapsedByComponent: Record<string, boolean>
+  routeVisibleByComponent: Record<string, boolean>
   scenario: SupplyScenario
   selectedNodeId: SupplyScenarioSelectableNodeId | null
 }
@@ -39,6 +51,14 @@ const CORNER_STAR_DOTS = [
   { left: "87%", opacity: 0.64, size: 1.8, top: "91%" },
   { left: "92%", opacity: 0.46, size: 1.2, top: "83%" },
 ] as const
+
+const GLOBE_SPLIT_ID = "dashboard-globe-split"
+const GLOBE_CANVAS_PANEL_ID = "dashboard-globe-canvas-panel"
+const GLOBE_ROUTES_PANEL_ID = "dashboard-globe-routes-panel"
+const GLOBE_SPLIT_DEFAULT = {
+  [GLOBE_CANVAS_PANEL_ID]: 62,
+  [GLOBE_ROUTES_PANEL_ID]: 38,
+}
 
 function getManufacturerForComponent(
   scenario: SupplyScenario,
@@ -87,6 +107,7 @@ function getManufacturerStatusStyles(isCurrent: boolean) {
 }
 
 function ManufacturerRow({
+  disabled = false,
   isFocused,
   isMostSustainable,
   isPinned,
@@ -94,6 +115,7 @@ function ManufacturerRow({
   onHoverNode,
   onSelectNode,
 }: {
+  disabled?: boolean
   isFocused: boolean
   isMostSustainable: boolean
   isPinned: boolean
@@ -108,11 +130,24 @@ function ManufacturerRow({
   return (
     <button
       type="button"
-      onClick={() => onSelectNode(manufacturer.id)}
-      onMouseEnter={() => onHoverNode(manufacturer.id)}
-      onMouseLeave={() => onHoverNode(null)}
+      onClick={() => {
+        if (!disabled) {
+          onSelectNode(manufacturer.id)
+        }
+      }}
+      onMouseEnter={() => {
+        if (!disabled) {
+          onHoverNode(manufacturer.id)
+        }
+      }}
+      onMouseLeave={() => {
+        if (!disabled) {
+          onHoverNode(null)
+        }
+      }}
       className={cn(
-        "group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
+        "group flex w-full items-center gap-2.5 px-2.5 py-2 text-left transition-colors",
+        disabled ? "cursor-default" : "",
         isFocused
           ? ""
           : isPinned
@@ -131,26 +166,27 @@ function ManufacturerRow({
           isFocused || isPinned
             ? `inset 2px 0 0 ${ecoSelectionStyles.edge}${isFocused ? `, ${ecoSelectionStyles.glow}` : ""}`
             : "none",
+        opacity: disabled ? 0.62 : 1,
       }}
     >
       <span
-        className="h-2 w-2 flex-shrink-0 rounded-full"
+        className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
         style={{
           background: ecoDotStyles.background,
           boxShadow: ecoDotStyles.shadow,
         }}
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-white/84">
+        <p className="truncate text-[13px] font-medium text-white/84">
           {manufacturer.name}
         </p>
-        <p className="text-[11px] text-white/38">
+        <p className="text-[10px] text-white/36">
           {manufacturer.location.city}, {manufacturer.location.country}
         </p>
       </div>
       <span
         className={cn(
-          "rounded-full px-2 py-1 text-[10px] font-medium",
+          "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
           statusStyles.badgeClassName
         )}
       >
@@ -187,18 +223,428 @@ function ManufacturerRow({
   )
 }
 
+function GlobeCanvasSection({
+  bestEcoManufacturerByComponent,
+  hoveredNodeId,
+  isSplitLayout,
+  onHoverNode,
+  onSelectNode,
+  pinnedManufacturerByComponent,
+  routeVisibleByComponent,
+  scenario,
+  selectedNodeId,
+  visibleRouteCount,
+}: {
+  bestEcoManufacturerByComponent: Record<string, string>
+  hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  isSplitLayout: boolean
+  onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  pinnedManufacturerByComponent: Record<string, string>
+  routeVisibleByComponent: Record<string, boolean>
+  scenario: SupplyScenario
+  selectedNodeId: SupplyScenarioSelectableNodeId | null
+  visibleRouteCount: number
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div
+        className={cn(
+          "relative flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08]",
+          isSplitLayout ? "min-h-0" : "min-h-[27rem] md:min-h-[31rem]"
+        )}
+        style={{
+          background:
+            "radial-gradient(circle at 50% 46%, color-mix(in oklab, var(--primary) 10%, transparent), transparent 34%), radial-gradient(circle at 48% 52%, color-mix(in oklab, var(--foreground) 6%, transparent), transparent 52%), linear-gradient(180deg, rgba(6,10,14,0.98), rgba(4,7,10,1))",
+        }}
+      >
+        <div className="pointer-events-none absolute inset-0">
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(circle at 8% 12%, rgba(255,255,255,0.02), transparent 18%), radial-gradient(circle at 91% 13%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 16%), radial-gradient(circle at 10% 88%, rgba(255,255,255,0.014), transparent 16%), radial-gradient(circle at 89% 87%, color-mix(in oklab, var(--foreground) 8%, transparent), transparent 16%)",
+            }}
+          />
+          {CORNER_STAR_DOTS.map((star, index) => (
+            <span
+              key={`${star.left}-${star.top}-${index}`}
+              className="absolute rounded-full bg-white"
+              style={{
+                boxShadow: `0 0 ${star.size * 5}px rgba(255,255,255,${Math.min(
+                  star.opacity * 0.35,
+                  0.24
+                )})`,
+                height: star.size,
+                left: star.left,
+                opacity: star.opacity,
+                top: star.top,
+                width: star.size,
+              }}
+            />
+          ))}
+        </div>
+        <div className="absolute inset-5 rounded-full border border-white/[0.09]" />
+        <div className="absolute inset-14 rounded-full border border-white/[0.06]" />
+
+        <InteractiveGlobe
+          bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
+          className="relative z-10"
+          hoveredNodeId={hoveredNodeId}
+          key={scenario.id}
+          onHoverNode={onHoverNode}
+          onSelectNode={onSelectNode}
+          pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+          routeVisibleByComponent={routeVisibleByComponent}
+          scenario={scenario}
+          selectedNodeId={selectedNodeId}
+        />
+      </div>
+
+      <p className="flex items-start gap-2 text-[10px] leading-snug text-white/34">
+        <HugeiconsIcon
+          icon={Route03Icon}
+          strokeWidth={1.7}
+          className="mt-0.5 h-3 w-3 shrink-0 text-white/28"
+        />
+        <span>
+          Eco-colored arcs · {visibleRouteCount} visible route
+          {visibleRouteCount === 1 ? "" : "s"} · scroll the graph out for
+          manufacturer detail · tap a manufacturer to reroute.
+        </span>
+      </p>
+    </div>
+  )
+}
+
+function RoutesList({
+  bestEcoManufacturerByComponent,
+  hoveredNodeId,
+  onHoverNode,
+  onSelectNode,
+  onToggleRouteCollapsed,
+  onToggleRouteVisible,
+  pinnedManufacturerByComponent,
+  routeCollapsedByComponent,
+  routeVisibleByComponent,
+  scenario,
+  selectedNodeId,
+}: {
+  bestEcoManufacturerByComponent: Record<string, string>
+  hoveredNodeId: SupplyScenarioSelectableNodeId | null
+  onHoverNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onSelectNode: (nodeId: SupplyScenarioSelectableNodeId | null) => void
+  onToggleRouteCollapsed: (componentId: string) => void
+  onToggleRouteVisible: (componentId: string) => void
+  pinnedManufacturerByComponent: Record<string, string>
+  routeCollapsedByComponent: Record<string, boolean>
+  routeVisibleByComponent: Record<string, boolean>
+  scenario: SupplyScenario
+  selectedNodeId: SupplyScenarioSelectableNodeId | null
+}) {
+  const selectedComponentId = getLinkedComponentId(scenario, selectedNodeId)
+  const hoveredComponentId = getLinkedComponentId(scenario, hoveredNodeId)
+
+  return (
+    <div className="space-y-2.5">
+      <p className="dashboard-section-label">Routes</p>
+
+      <div className="grid gap-2">
+        {scenario.components.map((component) => {
+          const manufacturers = getManufacturerForComponent(scenario, component)
+          const currentManufacturer =
+            manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
+            manufacturers[0]
+          const activeManufacturer =
+            manufacturers.find(
+              (manufacturer) =>
+                pinnedManufacturerByComponent[component.id] === manufacturer.id
+            ) ?? currentManufacturer
+          const componentDotStyles = activeManufacturer
+            ? getEcoDotStyles(activeManufacturer.ecoScore)
+            : null
+          const componentSelectionStyles = activeManufacturer
+            ? getEcoSelectionStyles(activeManufacturer.ecoScore)
+            : null
+          const isFocusedComponent =
+            selectedComponentId === component.id ||
+            hoveredComponentId === component.id
+          const currentCount = manufacturers.filter(
+            (manufacturer) => manufacturer.isCurrent
+          ).length
+          const isRouteVisible = routeVisibleByComponent[component.id] ?? true
+          const isCollapsed = routeCollapsedByComponent[component.id] ?? true
+          const toggleRouteLabel = isRouteVisible
+            ? `Hide ${component.label} route`
+            : `Show ${component.label} route`
+          const toggleFoldLabel = isCollapsed
+            ? `Expand ${component.label} manufacturers`
+            : `Collapse ${component.label} manufacturers`
+
+          return (
+            <div
+              key={component.id}
+              className={cn(
+                "rounded-lg border transition-colors",
+                isFocusedComponent
+                  ? "border-white/[0.12]"
+                  : "border-white/[0.07] hover:border-white/[0.09]"
+              )}
+              style={{
+                background: isFocusedComponent
+                  ? `linear-gradient(180deg, ${componentSelectionStyles?.surfaceStrong ?? "rgba(255,255,255,0.06)"}, rgba(7,12,16,0.76))`
+                  : isRouteVisible
+                    ? "rgba(7,12,16,0.58)"
+                    : "rgba(7,12,16,0.4)",
+                boxShadow: isFocusedComponent
+                  ? `0 0 0 1px ${componentSelectionStyles?.edge ?? "rgba(255,255,255,0.12)"}, inset 0 1px 0 rgba(255,255,255,0.04), ${componentSelectionStyles?.glow ?? "none"}`
+                  : "inset 0 1px 0 rgba(255,255,255,0.03)",
+                opacity: isRouteVisible ? 1 : 0.74,
+              }}
+              onMouseEnter={() => {
+                if (isRouteVisible) {
+                  onHoverNode(component.id)
+                }
+              }}
+              onMouseLeave={() => {
+                if (isRouteVisible) {
+                  onHoverNode(null)
+                }
+              }}
+            >
+              <div className="flex items-start gap-2.5 px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isRouteVisible) {
+                      onSelectNode(component.id)
+                    }
+                  }}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{
+                        background:
+                          componentDotStyles?.background ??
+                          "color-mix(in oklab, var(--primary) 82%, white 8%)",
+                        boxShadow:
+                          componentDotStyles?.shadow ??
+                          "0 0 10px color-mix(in oklab, var(--primary) 26%, transparent)",
+                      }}
+                    />
+                    <p className="truncate text-[13px] font-medium text-white/86">
+                      {component.label}
+                    </p>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-white/34">
+                    {currentCount} current ·{" "}
+                    {manufacturers.length - currentCount} alternate
+                  </p>
+                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className="dashboard-chip-muted px-2 py-0.5 text-[9px] tracking-[0.08em]">
+                    {manufacturers.length} sites
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={toggleRouteLabel}
+                    aria-pressed={isRouteVisible}
+                    title={toggleRouteLabel}
+                    onClick={() => onToggleRouteVisible(component.id)}
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
+                      isRouteVisible
+                        ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+                        : "border-white/[0.08] bg-white/[0.04] text-white/42"
+                    )}
+                  >
+                    <span aria-hidden="true" className="relative block h-3 w-3">
+                      <span className="absolute inset-px rounded-full border border-current" />
+                      {isRouteVisible ? (
+                        <span className="absolute inset-[3px] rounded-full bg-current" />
+                      ) : (
+                        <span className="absolute top-1/2 right-px left-px h-px -rotate-45 bg-current" />
+                      )}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                    aria-label={toggleFoldLabel}
+                    title={toggleFoldLabel}
+                    onClick={() => onToggleRouteCollapsed(component.id)}
+                    className="flex h-6 w-6 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[10px] font-semibold text-white/62 transition-colors hover:border-white/[0.12] hover:text-white/82"
+                  >
+                    <span aria-hidden="true">{isCollapsed ? "v" : "^"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div
+                className="grid transition-[grid-template-rows,opacity] duration-300 ease-out"
+                style={{
+                  gridTemplateRows: isCollapsed ? "0fr" : "1fr",
+                  opacity: isCollapsed ? 0 : 1,
+                }}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="px-2.5 pb-2.5">
+                    <div className="overflow-hidden rounded-lg border border-white/[0.05] bg-[rgba(6,6,12,0.44)]">
+                      {manufacturers.map((manufacturer, index) => {
+                        const isFocusedManufacturer =
+                          selectedNodeId === manufacturer.id ||
+                          hoveredNodeId === manufacturer.id
+                        const isPinnedManufacturer =
+                          pinnedManufacturerByComponent[component.id] ===
+                          manufacturer.id
+                        const isMostSustainableManufacturer =
+                          bestEcoManufacturerByComponent[component.id] ===
+                          manufacturer.id
+
+                        return (
+                          <div
+                            key={manufacturer.id}
+                            className={cn(
+                              index > 0 ? "border-t border-white/[0.05]" : ""
+                            )}
+                          >
+                            <ManufacturerRow
+                              disabled={!isRouteVisible}
+                              isFocused={isFocusedManufacturer}
+                              isMostSustainable={isMostSustainableManufacturer}
+                              isPinned={isPinnedManufacturer}
+                              manufacturer={manufacturer}
+                              onHoverNode={(nodeId) =>
+                                !isRouteVisible
+                                  ? onHoverNode(null)
+                                  : nodeId
+                                    ? onHoverNode(nodeId)
+                                    : onHoverNode(component.id)
+                              }
+                              onSelectNode={(nodeId) => {
+                                if (isRouteVisible) {
+                                  onSelectNode(nodeId)
+                                }
+                              }}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function GlobeView({
   bestEcoManufacturerByComponent,
   className,
   hoveredNodeId,
   onHoverNode,
   onSelectNode,
+  onToggleRouteCollapsed,
+  onToggleRouteVisible,
   pinnedManufacturerByComponent,
+  routeCollapsedByComponent,
+  routeVisibleByComponent,
   scenario,
   selectedNodeId,
 }: GlobeViewProps) {
-  const selectedComponentId = getLinkedComponentId(scenario, selectedNodeId)
-  const hoveredComponentId = getLinkedComponentId(scenario, hoveredNodeId)
+  const [isSplitLayout, setIsSplitLayout] = useState(false)
+  const [isGlobeSplitResizing, setIsGlobeSplitResizing] = useState(false)
+  const globeSplitRef = useRef<HTMLDivElement>(null)
+  const globeResizeTimeoutRef = useRef<number | null>(null)
+  const {
+    defaultLayout: persistedGlobeLayout,
+    onLayoutChanged: persistGlobeLayout,
+  } = useDefaultLayout({
+    id: GLOBE_SPLIT_ID,
+    panelIds: [GLOBE_CANVAS_PANEL_ID, GLOBE_ROUTES_PANEL_ID],
+  })
+  const {
+    measure: measureGlobeHandleIndicator,
+    position: globeHandleIndicatorPosition,
+    targetPosition: globeHandleTargetPosition,
+  } = useSmoothedHandleIndicator(globeSplitRef)
+  const visibleRouteCount = scenario.components.filter(
+    (component) => routeVisibleByComponent[component.id] ?? true
+  ).length
+  const globeHandleLagOffset =
+    globeHandleIndicatorPosition && globeHandleTargetPosition
+      ? Math.max(
+          -4,
+          Math.min(
+            4,
+            globeHandleIndicatorPosition.y - globeHandleTargetPosition.y
+          )
+        )
+      : 0
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 768px)")
+    const syncLayoutMode = () => setIsSplitLayout(mediaQuery.matches)
+
+    syncLayoutMode()
+    mediaQuery.addEventListener("change", syncLayoutMode)
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncLayoutMode)
+    }
+  }, [])
+
+  const stopGlobeResizeTracking = useCallback(() => {
+    if (globeResizeTimeoutRef.current !== null) {
+      window.clearTimeout(globeResizeTimeoutRef.current)
+      globeResizeTimeoutRef.current = null
+    }
+
+    setIsGlobeSplitResizing(false)
+  }, [])
+
+  const handleGlobeLayoutChange = useCallback(() => {
+    setIsGlobeSplitResizing(true)
+    measureGlobeHandleIndicator()
+
+    if (globeResizeTimeoutRef.current !== null) {
+      window.clearTimeout(globeResizeTimeoutRef.current)
+    }
+
+    globeResizeTimeoutRef.current = window.setTimeout(() => {
+      globeResizeTimeoutRef.current = null
+      setIsGlobeSplitResizing(false)
+    }, 180)
+  }, [measureGlobeHandleIndicator])
+
+  const handleGlobeLayoutChanged = useCallback(
+    (layout: Record<string, number>) => {
+      persistGlobeLayout(layout)
+      measureGlobeHandleIndicator()
+      stopGlobeResizeTracking()
+    },
+    [measureGlobeHandleIndicator, persistGlobeLayout, stopGlobeResizeTracking]
+  )
+
+  useEffect(() => stopGlobeResizeTracking, [stopGlobeResizeTracking])
+
+  useEffect(() => {
+    if (!isSplitLayout) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      measureGlobeHandleIndicator()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isSplitLayout, measureGlobeHandleIndicator])
 
   return (
     <section
@@ -250,196 +696,128 @@ export function GlobeView({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-        <div
-          className="relative flex min-h-[27rem] flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] md:min-h-[31rem]"
-          style={{
-            background:
-              "radial-gradient(circle at 50% 46%, color-mix(in oklab, var(--primary) 10%, transparent), transparent 34%), radial-gradient(circle at 48% 52%, color-mix(in oklab, var(--foreground) 6%, transparent), transparent 52%), linear-gradient(180deg, rgba(6,10,14,0.98), rgba(4,7,10,1))",
-          }}
-        >
-          <div className="pointer-events-none absolute inset-0">
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(circle at 8% 12%, rgba(255,255,255,0.02), transparent 18%), radial-gradient(circle at 91% 13%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 16%), radial-gradient(circle at 10% 88%, rgba(255,255,255,0.014), transparent 16%), radial-gradient(circle at 89% 87%, color-mix(in oklab, var(--foreground) 8%, transparent), transparent 16%)",
-              }}
-            />
-            {CORNER_STAR_DOTS.map((star, index) => (
-              <span
-                key={`${star.left}-${star.top}-${index}`}
-                className="absolute rounded-full bg-white"
-                style={{
-                  boxShadow: `0 0 ${star.size * 5}px rgba(255,255,255,${Math.min(
-                    star.opacity * 0.35,
-                    0.24
-                  )})`,
-                  height: star.size,
-                  left: star.left,
-                  opacity: star.opacity,
-                  top: star.top,
-                  width: star.size,
-                }}
-              />
-            ))}
-          </div>
-          <div className="absolute inset-5 rounded-full border border-white/[0.09]" />
-          <div className="absolute inset-14 rounded-full border border-white/[0.06]" />
-
-          <InteractiveGlobe
-            bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
-            className="relative z-10"
-            hoveredNodeId={hoveredNodeId}
-            onHoverNode={onHoverNode}
-            onSelectNode={onSelectNode}
-            pinnedManufacturerByComponent={pinnedManufacturerByComponent}
-            scenario={scenario}
-            selectedNodeId={selectedNodeId}
-          />
-        </div>
-
-        <p className="flex items-start gap-2 text-[11px] leading-snug text-white/38">
-          <HugeiconsIcon
-            icon={Route03Icon}
-            strokeWidth={1.7}
-            className="mt-0.5 h-3 w-3 shrink-0 text-white/32"
-          />
-          <span>
-            Eco-colored arcs · {scenario.stats.currentRouteCount} default
-            {scenario.stats.currentRouteCount === 1 ? "" : "s"} · Graph for
-            detail · tap a manufacturer to reroute.
-          </span>
-        </p>
-
-        <div className="space-y-3">
-          <p className="dashboard-section-label">Routes</p>
-
-          <div className="grid gap-2.5">
-            {scenario.components.map((component) => {
-              const manufacturers = getManufacturerForComponent(
-                scenario,
-                component
-              )
-              const currentManufacturer =
-                manufacturers.find((manufacturer) => manufacturer.isCurrent) ??
-                manufacturers[0]
-              const activeManufacturer =
-                manufacturers.find(
-                  (manufacturer) =>
-                    pinnedManufacturerByComponent[component.id] ===
-                    manufacturer.id
-                ) ?? currentManufacturer
-              const componentDotStyles = activeManufacturer
-                ? getEcoDotStyles(activeManufacturer.ecoScore)
-                : null
-              const componentSelectionStyles = activeManufacturer
-                ? getEcoSelectionStyles(activeManufacturer.ecoScore)
-                : null
-              const isFocusedComponent =
-                selectedComponentId === component.id ||
-                hoveredComponentId === component.id
-              const currentCount = manufacturers.filter(
-                (manufacturer) => manufacturer.isCurrent
-              ).length
-
-              return (
-                <div
-                  key={component.id}
-                  className={cn(
-                    "rounded-xl border transition-colors",
-                    isFocusedComponent
-                      ? "border-white/[0.12]"
-                      : "border-white/[0.07] hover:border-white/[0.09]"
-                  )}
-                  style={{
-                    background: isFocusedComponent
-                      ? `linear-gradient(180deg, ${componentSelectionStyles?.surfaceStrong ?? "rgba(255,255,255,0.06)"}, rgba(7,12,16,0.76))`
-                      : "rgba(7,12,16,0.58)",
-                    boxShadow: isFocusedComponent
-                      ? `0 0 0 1px ${componentSelectionStyles?.edge ?? "rgba(255,255,255,0.12)"}, inset 0 1px 0 rgba(255,255,255,0.04), ${componentSelectionStyles?.glow ?? "none"}`
-                      : "inset 0 1px 0 rgba(255,255,255,0.03)",
-                  }}
-                  onMouseEnter={() => onHoverNode(component.id)}
-                  onMouseLeave={() => onHoverNode(null)}
+      <div className="min-h-0 flex-1">
+        {isSplitLayout ? (
+          <div className="flex h-full min-h-0 flex-col px-4 py-4">
+            <div ref={globeSplitRef} className="relative min-h-0 flex-1">
+              <ResizablePanelGroup
+                id={GLOBE_SPLIT_ID}
+                className="min-h-0 flex-1"
+                defaultLayout={persistedGlobeLayout ?? GLOBE_SPLIT_DEFAULT}
+                onLayoutChange={handleGlobeLayoutChange}
+                onLayoutChanged={handleGlobeLayoutChanged}
+                orientation="vertical"
+              >
+                <ResizablePanel
+                  id={GLOBE_CANVAS_PANEL_ID}
+                  className="min-h-0"
+                  minSize="18rem"
                 >
-                  <button
-                    type="button"
-                    onClick={() => onSelectNode(component.id)}
-                    className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{
-                            background:
-                              componentDotStyles?.background ??
-                              "color-mix(in oklab, var(--primary) 82%, white 8%)",
-                            boxShadow:
-                              componentDotStyles?.shadow ??
-                              "0 0 10px color-mix(in oklab, var(--primary) 26%, transparent)",
-                          }}
-                        />
-                        <p className="truncate text-sm font-medium text-white/88">
-                          {component.label}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-xs text-white/38">
-                        {currentCount} current ·{" "}
-                        {manufacturers.length - currentCount} alternate ·{" "}
-                        {scenario.destination.label}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="dashboard-chip-muted">
-                        {manufacturers.length} sites
-                      </span>
-                    </div>
-                  </button>
-
-                  <div className="px-3 pb-3">
-                    <div className="overflow-hidden rounded-xl border border-white/[0.05] bg-[rgba(6,6,12,0.44)]">
-                      {manufacturers.map((manufacturer, index) => {
-                        const isFocusedManufacturer =
-                          selectedNodeId === manufacturer.id ||
-                          hoveredNodeId === manufacturer.id
-                        const isPinnedManufacturer =
-                          pinnedManufacturerByComponent[component.id] ===
-                          manufacturer.id
-                        const isMostSustainableManufacturer =
-                          bestEcoManufacturerByComponent[component.id] ===
-                          manufacturer.id
-
-                        return (
-                          <div
-                            key={manufacturer.id}
-                            className={cn(
-                              index > 0 ? "border-t border-white/[0.05]" : ""
-                            )}
-                          >
-                            <ManufacturerRow
-                              isFocused={isFocusedManufacturer}
-                              isMostSustainable={isMostSustainableManufacturer}
-                              isPinned={isPinnedManufacturer}
-                              manufacturer={manufacturer}
-                              onHoverNode={(nodeId) =>
-                                nodeId
-                                  ? onHoverNode(nodeId)
-                                  : onHoverNode(component.id)
-                              }
-                              onSelectNode={onSelectNode}
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
+                  <div className="h-full min-h-0 pr-1">
+                    <GlobeCanvasSection
+                      bestEcoManufacturerByComponent={
+                        bestEcoManufacturerByComponent
+                      }
+                      hoveredNodeId={hoveredNodeId}
+                      isSplitLayout={isSplitLayout}
+                      onHoverNode={onHoverNode}
+                      onSelectNode={onSelectNode}
+                      pinnedManufacturerByComponent={
+                        pinnedManufacturerByComponent
+                      }
+                      routeVisibleByComponent={routeVisibleByComponent}
+                      scenario={scenario}
+                      selectedNodeId={selectedNodeId}
+                      visibleRouteCount={visibleRouteCount}
+                    />
                   </div>
+                </ResizablePanel>
+                <ResizableHandle className="my-1 h-3 rounded-full bg-transparent after:h-6 aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:after:h-6" />
+                <ResizablePanel
+                  id={GLOBE_ROUTES_PANEL_ID}
+                  className="min-h-0"
+                  minSize="16rem"
+                >
+                  <div className="h-full min-h-0 overflow-y-auto pl-1">
+                    <RoutesList
+                      bestEcoManufacturerByComponent={
+                        bestEcoManufacturerByComponent
+                      }
+                      hoveredNodeId={hoveredNodeId}
+                      onHoverNode={onHoverNode}
+                      onSelectNode={onSelectNode}
+                      onToggleRouteCollapsed={onToggleRouteCollapsed}
+                      onToggleRouteVisible={onToggleRouteVisible}
+                      pinnedManufacturerByComponent={
+                        pinnedManufacturerByComponent
+                      }
+                      routeCollapsedByComponent={routeCollapsedByComponent}
+                      routeVisibleByComponent={routeVisibleByComponent}
+                      scenario={scenario}
+                      selectedNodeId={selectedNodeId}
+                    />
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+              {globeHandleTargetPosition ? (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute z-20 transition-opacity duration-150"
+                  style={{
+                    left: "50%",
+                    top: globeHandleTargetPosition.y - 6,
+                    transform: "translateX(-50%)",
+                  }}
+                >
+                  <span
+                    className={cn(
+                      "flex h-3 items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[width,background-color,box-shadow] duration-200",
+                      isGlobeSplitResizing ? "w-24 bg-white/[0.08]" : "w-16"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "block h-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[width,background-color,box-shadow] duration-200",
+                        isGlobeSplitResizing ? "w-24 bg-white/[0.3]" : "w-16"
+                      )}
+                      style={{
+                        transform: `translateY(${globeHandleLagOffset}px)`,
+                      }}
+                    />
+                  </span>
                 </div>
-              )
-            })}
+              ) : null}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-4 py-4">
+            <GlobeCanvasSection
+              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
+              hoveredNodeId={hoveredNodeId}
+              isSplitLayout={isSplitLayout}
+              onHoverNode={onHoverNode}
+              onSelectNode={onSelectNode}
+              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+              routeVisibleByComponent={routeVisibleByComponent}
+              scenario={scenario}
+              selectedNodeId={selectedNodeId}
+              visibleRouteCount={visibleRouteCount}
+            />
+            <RoutesList
+              bestEcoManufacturerByComponent={bestEcoManufacturerByComponent}
+              hoveredNodeId={hoveredNodeId}
+              onHoverNode={onHoverNode}
+              onSelectNode={onSelectNode}
+              onToggleRouteCollapsed={onToggleRouteCollapsed}
+              onToggleRouteVisible={onToggleRouteVisible}
+              pinnedManufacturerByComponent={pinnedManufacturerByComponent}
+              routeCollapsedByComponent={routeCollapsedByComponent}
+              routeVisibleByComponent={routeVisibleByComponent}
+              scenario={scenario}
+              selectedNodeId={selectedNodeId}
+            />
+          </div>
+        )}
       </div>
     </section>
   )

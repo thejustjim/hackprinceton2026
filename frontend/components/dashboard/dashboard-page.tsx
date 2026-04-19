@@ -30,7 +30,14 @@ interface ReportProgressState {
   value: number
 }
 
-function createDefaultPrompt(scenario: SupplyScenario) {
+interface ScenarioEditHistoryState {
+  future: SupplyScenario[]
+  past: SupplyScenario[]
+}
+
+const MAX_SCENARIO_EDIT_HISTORY = 50
+
+function createDefaultPrompt() {
   return `Show me only factories in Asia`
 }
 
@@ -68,6 +75,29 @@ function downloadBase64File(
   URL.revokeObjectURL(objectUrl)
 }
 
+function trimScenarioHistory(stack: SupplyScenario[]) {
+  return stack.length > MAX_SCENARIO_EDIT_HISTORY
+    ? stack.slice(stack.length - MAX_SCENARIO_EDIT_HISTORY)
+    : stack
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.tagName === "SELECT")
+  )
+}
+
+function isKimiPromptTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("[data-kimi-prompt-input='true']"))
+  )
+}
+
 export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
   const [scenario, setScenario] = useState<SupplyScenario | null>(() =>
     startsInDemo ? sampleSupplyScenario : null
@@ -81,18 +111,22 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
   const [error, setError] = useState<string | null>(null)
   const [promptValue, setPromptValue] = useState("")
   const [promptPlaceholder, setPromptPlaceholder] = useState(() =>
-    startsInDemo ? createDefaultPrompt(sampleSupplyScenario) : ""
+    startsInDemo ? createDefaultPrompt() : ""
   )
   const [promptPending, setPromptPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
   const [reportPending, setReportPending] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [reportElapsedMs, setReportElapsedMs] = useState(0)
+  const [scenarioEditHistory, setScenarioEditHistory] =
+    useState<ScenarioEditHistoryState>({
+      future: [],
+      past: [],
+    })
   const handoffConsumedRef = useRef(false)
 
   useEffect(() => {
     if (!reportPending) {
-      setReportElapsedMs(0)
       return
     }
 
@@ -106,15 +140,92 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     }
   }, [reportPending])
 
+  const resetScenarioEditHistory = useCallback(() => {
+    setScenarioEditHistory({
+      future: [],
+      past: [],
+    })
+  }, [])
+
+  const handleUndoPromptEdit = useCallback(() => {
+    if (promptPending || !scenario || scenarioEditHistory.past.length === 0) {
+      return false
+    }
+
+    const previousScenario =
+      scenarioEditHistory.past[scenarioEditHistory.past.length - 1]
+
+    setScenarioEditHistory((previousState) => ({
+      future: trimScenarioHistory([scenario, ...previousState.future]),
+      past: previousState.past.slice(0, -1),
+    }))
+    setScenario(previousScenario)
+    setPromptError(null)
+    setReportPending(false)
+    setReportElapsedMs(0)
+    setReportError(null)
+    return true
+  }, [promptPending, scenario, scenarioEditHistory.past])
+
+  const handleRedoPromptEdit = useCallback(() => {
+    if (promptPending || !scenario || scenarioEditHistory.future.length === 0) {
+      return false
+    }
+
+    const [nextScenario, ...remainingFuture] = scenarioEditHistory.future
+
+    setScenarioEditHistory((previousState) => ({
+      future: remainingFuture,
+      past: trimScenarioHistory([...previousState.past, scenario]),
+    }))
+    setScenario(nextScenario)
+    setPromptError(null)
+    setReportPending(false)
+    setReportElapsedMs(0)
+    setReportError(null)
+    return true
+  }, [promptPending, scenario, scenarioEditHistory.future])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) {
+        return
+      }
+
+      if (event.key.toLowerCase() !== "z") {
+        return
+      }
+
+      if (isEditableTarget(event.target) && !isKimiPromptTarget(event.target)) {
+        return
+      }
+
+      const handled = event.shiftKey
+        ? handleRedoPromptEdit()
+        : handleUndoPromptEdit()
+
+      if (handled) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true })
+    return () =>
+      window.removeEventListener("keydown", handleKeyDown, { capture: true })
+  }, [handleRedoPromptEdit, handleUndoPromptEdit])
+
   const runScenarioCsvText = useCallback(async (text: string) => {
     clearDashboardEntry()
     setStatus("loading")
     setError(null)
     setPromptError(null)
     setReportPending(false)
+    setReportElapsedMs(0)
     setReportError(null)
     setScenario(null)
     setScenarioSource(null)
+    resetScenarioEditHistory()
 
     const parsed = parseScenarioSearchCsv(text)
     if (!parsed.ok) {
@@ -149,9 +260,11 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       setScenario(nextScenario)
       setScenarioSource("search")
       setPromptValue("")
-      setPromptPlaceholder(createDefaultPrompt(nextScenario))
+      setPromptPlaceholder(createDefaultPrompt())
       setReportPending(false)
+      setReportElapsedMs(0)
       setReportError(null)
+      resetScenarioEditHistory()
       setStatus("idle")
     } catch (caught) {
       const message =
@@ -161,7 +274,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       setStatus("error")
       setError(message)
     }
-  }, [])
+  }, [resetScenarioEditHistory])
 
   useEffect(() => {
     if (isHandoff) {
@@ -175,6 +288,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
           setScenarioSource(null)
           setStatus("error")
           setError("No scenario CSV was transferred from /launch.")
+          resetScenarioEditHistory()
         })
         return
       }
@@ -193,12 +307,14 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
         setScenario(sampleSupplyScenario)
         setScenarioSource("demo")
         setPromptValue("")
-        setPromptPlaceholder(createDefaultPrompt(sampleSupplyScenario))
+        setPromptPlaceholder(createDefaultPrompt())
         setStatus("idle")
         setError(null)
         setPromptError(null)
         setReportPending(false)
+        setReportElapsedMs(0)
         setReportError(null)
+        resetScenarioEditHistory()
       })
       return
     }
@@ -212,9 +328,11 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       setError(null)
       setPromptError(null)
       setReportPending(false)
+      setReportElapsedMs(0)
       setReportError(null)
+      resetScenarioEditHistory()
     })
-  }, [isHandoff, runScenarioCsvText, startsInDemo])
+  }, [isHandoff, resetScenarioEditHistory, runScenarioCsvText, startsInDemo])
 
   const handleUseDemo = useCallback(() => {
     clearPendingScenarioCsv()
@@ -224,11 +342,13 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setScenario(sampleSupplyScenario)
     setScenarioSource("demo")
     setPromptValue("")
-    setPromptPlaceholder(createDefaultPrompt(sampleSupplyScenario))
+    setPromptPlaceholder(createDefaultPrompt())
     setPromptError(null)
     setReportPending(false)
+    setReportElapsedMs(0)
     setReportError(null)
-  }, [])
+    resetScenarioEditHistory()
+  }, [resetScenarioEditHistory])
 
   const handleReset = useCallback(() => {
     clearPendingScenarioCsv()
@@ -240,8 +360,10 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setPromptValue("")
     setPromptError(null)
     setReportPending(false)
+    setReportElapsedMs(0)
     setReportError(null)
-  }, [])
+    resetScenarioEditHistory()
+  }, [resetScenarioEditHistory])
 
   const handlePromptSubmit = useCallback(async () => {
     if (!scenario || !promptValue.trim() || promptPending) {
@@ -258,6 +380,12 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       })
 
       if (response.status === "applied" && response.scenario) {
+        setScenarioEditHistory((previousState) => ({
+          future: [],
+          past: scenario
+            ? trimScenarioHistory([...previousState.past, scenario])
+            : previousState.past,
+        }))
         setScenario(response.scenario)
         setPromptError(null)
         return
@@ -288,6 +416,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       }
 
       setReportPending(true)
+      setReportElapsedMs(0)
       setReportError(null)
 
       try {
@@ -308,6 +437,7 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
         )
       } finally {
         setReportPending(false)
+        setReportElapsedMs(0)
       }
     },
     [reportPending]
