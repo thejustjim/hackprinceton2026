@@ -29,8 +29,8 @@ const FORCE_SIMULATION_SETTLE_FRAMES = 18
 const MOST_SUSTAINABLE_EDGE = {
   core: "#6EE7B7",
   coreStrong: "#ECFDF5",
-  glowSoft: "rgba(52,211,153,0.22)",
-  glowStrong: "rgba(52,211,153,0.42)",
+  glowSoft: "rgba(52,211,153,0.42)",
+  glowStrong: "rgba(52,211,153,0.72)",
   pulseSoft: "rgba(167,243,208,0.34)",
   pulseStrong: "rgba(209,250,229,0.92)",
 }
@@ -959,8 +959,8 @@ function ConnectionEdge({
               ? MOST_SUSTAINABLE_EDGE.glowStrong
               : MOST_SUSTAINABLE_EDGE.glowSoft
           }
-          strokeWidth={selected ? 11 : hovered ? 9.5 : 7.8}
-          style={{ filter: selected ? "blur(9px)" : "blur(7px)" }}
+          strokeWidth={selected ? 16 : hovered ? 13 : 11}
+          style={{ filter: selected ? "blur(10px)" : "blur(8px)" }}
         />
       ) : null}
       {/* Glow layer when active */}
@@ -985,10 +985,10 @@ function ConnectionEdge({
         strokeWidth={
           mostSustainable
             ? selected
-              ? 2.85
+              ? 3.4
               : hovered
-                ? 2.35
-                : 2.1
+                ? 2.9
+                : 2.6
             : selected
               ? 2.6
               : hovered
@@ -1764,8 +1764,11 @@ export function SupplyChainGraph({
                 hoveredNodeId === src.id ||
                 hoveredNodeId === tgt.id
               const isMostSustainable =
-                tgt.data.kind === "manufacturer" &&
-                bestEcoManufacturerByComponent[tgt.data.componentId] === tgt.id
+                (tgt.data.kind === "manufacturer" &&
+                  bestEcoManufacturerByComponent[tgt.data.componentId] === tgt.id) ||
+                (src.data.kind === "product" &&
+                  tgt.data.kind === "component" &&
+                  !!bestEcoManufacturerByComponent[tgt.id])
               const flowActive =
                 src.data.kind === "product" ||
                 (tgt.data.kind === "manufacturer" && tgt.data.isCurrent)

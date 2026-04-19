@@ -146,6 +146,17 @@ class ScenarioEditRequestPayload(StrictModel):
     scenario: SupplyScenarioPayload
 
 
+class EditableScenarioPayload(StrictModel):
+    components: list[SupplyScenarioComponentNodePayload]
+    destination: SupplyScenarioDestinationPayload
+    id: str
+    manufacturers: list[SupplyScenarioManufacturerNodePayload]
+    product: SupplyScenarioProductNodePayload
+    quantity: int = Field(ge=1)
+    title: str
+    unit: str
+
+
 class ScenarioEditModelOutputPayload(StrictModel):
     message: str
     scenario_json: str | None = None
@@ -177,7 +188,7 @@ def _normalize_base_url(value: str | None) -> str:
     return raw
 
 
-def _get_k2think_settings() -> tuple[str, str, str]:
+def _get_k2think_settings() -> tuple[str, str, str, float]:
     api_key = os.environ.get("K2THINK_API_KEY", "").strip()
     if not api_key:
         raise ScenarioEditConfigError(
@@ -191,7 +202,18 @@ def _get_k2think_settings() -> tuple[str, str, str]:
         )
 
     base_url = _normalize_base_url(os.environ.get("K2THINK_BASE_URL"))
-    return api_key, model, base_url
+    timeout_raw = os.environ.get("K2THINK_TIMEOUT_SECONDS", "120").strip()
+    try:
+        timeout_seconds = float(timeout_raw)
+    except ValueError as exc:
+        raise ScenarioEditConfigError(
+            "K2THINK_TIMEOUT_SECONDS must be a number."
+        ) from exc
+    if timeout_seconds <= 0:
+        raise ScenarioEditConfigError(
+            "K2THINK_TIMEOUT_SECONDS must be greater than 0."
+        )
+    return api_key, model, base_url, timeout_seconds
 
 
 def _format_updated_at() -> str:
@@ -334,8 +356,21 @@ def _build_graph_node_data(
     )
 
 
+def _to_editable_scenario(scenario: SupplyScenarioPayload) -> EditableScenarioPayload:
+    return EditableScenarioPayload(
+        components=scenario.components,
+        destination=scenario.destination,
+        id=scenario.id,
+        manufacturers=scenario.manufacturers,
+        product=scenario.product,
+        quantity=scenario.quantity,
+        title=scenario.title,
+        unit=scenario.unit,
+    )
+
+
 def normalize_edited_scenario(
-    original: SupplyScenarioPayload, candidate: SupplyScenarioPayload
+    original: SupplyScenarioPayload, candidate: EditableScenarioPayload
 ) -> SupplyScenarioPayload:
     title = _non_empty(candidate.title, "Scenario title")
     unit = _non_empty(candidate.unit, "Scenario unit")
@@ -463,7 +498,7 @@ def normalize_edited_scenario(
 
 def _build_edit_messages(prompt: str, scenario: SupplyScenarioPayload) -> list[dict[str, str]]:
     scenario_json = json.dumps(
-        scenario.model_dump(mode="json"),
+        _to_editable_scenario(scenario).model_dump(mode="json"),
         separators=(",", ":"),
     )
     return [
@@ -479,7 +514,9 @@ def _build_edit_messages(prompt: str, scenario: SupplyScenarioPayload) -> list[d
                 "every manufacturer.componentId must reference an existing component; "
                 "each component must end with exactly one current manufacturer; "
                 "destination/product/component/manufacturer labels and locations must be non-empty. "
-                "Graph/routes/stats will be rebuilt server-side, but still return a complete scenario JSON object. "
+                "Return only the editable scenario fields: "
+                "id, title, quantity, unit, product, destination, components, manufacturers. "
+                "Do not include graph, routes, stats, or updatedAt; those are rebuilt server-side. "
                 "If the user's request cannot be represented as scenario JSON, respond with status='rejected' "
                 "and explain why in message. If it can be safely applied, respond with "
                 "status='applied', a short message, and scenario_json containing the full "
@@ -501,7 +538,7 @@ def _build_edit_messages(prompt: str, scenario: SupplyScenarioPayload) -> list[d
 async def edit_scenario_with_k2(
     prompt: str, scenario: SupplyScenarioPayload
 ) -> ScenarioEditResponsePayload:
-    api_key, model, base_url = _get_k2think_settings()
+    api_key, model, base_url, timeout_seconds = _get_k2think_settings()
     headers = {
         "Authorization": f"Bearer {api_key}",
         "accept": "application/json",
@@ -510,7 +547,7 @@ async def edit_scenario_with_k2(
 
     messages = _build_edit_messages(prompt, scenario)
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         parse_error: str | None = None
 
         for attempt in range(1, 4):
@@ -568,7 +605,14 @@ async def edit_scenario_with_k2(
                     )
 
                 scenario_payload = json.loads(model_output.scenario_json)
-                edited_scenario = SupplyScenarioPayload.model_validate(scenario_payload)
+                try:
+                    editable_scenario = EditableScenarioPayload.model_validate(
+                        scenario_payload
+                    )
+                except Exception:
+                    editable_scenario = _to_editable_scenario(
+                        SupplyScenarioPayload.model_validate(scenario_payload)
+                    )
             except (json.JSONDecodeError, ValueError) as exc:
                 parse_error = str(exc)
             except Exception as exc:  # noqa: BLE001
@@ -579,7 +623,7 @@ async def edit_scenario_with_k2(
             else:
                 return ScenarioEditResponsePayload(
                     message=model_output.message,
-                    scenario=edited_scenario,
+                    scenario=normalize_edited_scenario(scenario, editable_scenario),
                     status="applied",
                 )
 
