@@ -114,6 +114,7 @@ def _warn_if_search_tools_misconfigured() -> None:
         )
 
 
+from . import machine_host
 from .agents import run_supply_chain_research
 from .db import audit_search, init_db
 from .ml_scorer import compute_composite_scores, parse_agent_output
@@ -172,6 +173,13 @@ def _startup() -> None:
         get_emissions_model()
     except Exception as exc:  # noqa: BLE001
         print(f"[startup] EmissionsModel preload failed: {exc}")
+    # Provision the Dedalus Machine used by fetch_url (no-op unless the flag is set).
+    machine_host.init_machine()
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    machine_host.destroy_machine()
 
 
 # ---------------------------------------------------------------------------

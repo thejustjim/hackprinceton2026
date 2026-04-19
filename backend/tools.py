@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 
 # ml_bridge must be imported first to set up sys.path before ml.* imports.
 from . import ml_bridge  # noqa: F401  (side-effect: configures sys.path)
+from . import machine_host
 from .ml_bridge import (
     get_emissions_model,
     get_score_assembler,
@@ -305,12 +306,32 @@ def web_search(query: str, max_results: int = 8) -> list[dict]:
 #  Tool 5 — fetch_url (httpx + BeautifulSoup text extraction)
 # ---------------------------------------------------------------------------
 
+def _local_fetch(url: str) -> str:
+    """Local httpx fetch. Returns raw HTML or raises."""
+    resp = httpx.get(
+        url,
+        headers={
+            "User-Agent": _UA,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        timeout=12.0,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    return resp.text
+
+
 def fetch_url(url: str, max_chars: int = 4000) -> str:
     """
     Fetch a URL and return the visible text content.
 
     Use this to read a manufacturer's sustainability or ESG page after finding
     it via `web_search`. Strips scripts/styles/nav and returns just the prose.
+
+    When GREENCHAIN_USE_DEDALUS_MACHINE=1, the raw HTTP egress runs inside a
+    provisioned Dedalus Machine (KVM-isolated VM); HTML parsing always runs
+    in-process. Falls back to local httpx if the Machine path errors.
 
     Args:
         url:       Absolute URL (must include https://).
@@ -323,22 +344,28 @@ def fetch_url(url: str, max_chars: int = 4000) -> str:
     max_chars = max(500, min(int(max_chars or 4000), 16000))
     if not url or not url.startswith(("http://", "https://")):
         return f"FETCH_FAILED: invalid_url — {url}"
-    try:
-        resp = httpx.get(
-            url,
-            headers={
-                "User-Agent": _UA,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-            timeout=12.0,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        return f"FETCH_FAILED: {type(exc).__name__}: {exc} — {url}"
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    html: str
+    if machine_host.is_enabled():
+        try:
+            html = machine_host.fetch_via_machine(url, timeout=15.0)
+        except machine_host.MachineFetchError as exc:
+            print(
+                f"[tools.fetch_url] machine path failed ({exc}); "
+                "falling back to local httpx.",
+                flush=True,
+            )
+            try:
+                html = _local_fetch(url)
+            except Exception as exc2:  # noqa: BLE001
+                return f"FETCH_FAILED: {type(exc2).__name__}: {exc2} — {url}"
+    else:
+        try:
+            html = _local_fetch(url)
+        except Exception as exc:  # noqa: BLE001
+            return f"FETCH_FAILED: {type(exc).__name__}: {exc} — {url}"
+
+    soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
         tag.decompose()
 

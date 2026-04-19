@@ -1,4 +1,5 @@
 import type { SupplyScenario } from "@/lib/supply-chain-scenario"
+import { getApiBaseUrl } from "@/lib/api-base-url"
 
 export type TransportMode = "sea" | "air" | "rail" | "road"
 export type EnvRating = "green" | "amber" | "red"
@@ -125,7 +126,7 @@ export interface ScenarioReportResponse {
   model: string
 }
 
-export const API_BASE_URL = "/api"
+export const API_BASE_URL = getApiBaseUrl()
 
 async function readErrorDetail(response: Response) {
   const text = await response.text().catch(() => response.statusText)
@@ -142,7 +143,9 @@ async function readErrorDetail(response: Response) {
 }
 
 export async function getHealth(): Promise<{ status: string }> {
-  const response = await fetch(`${API_BASE_URL}/health`)
+  const response = await fetch(`${API_BASE_URL}/health`, {
+    cache: "no-store",
+  })
   if (!response.ok) {
     throw new Error(`Health check failed: ${response.status}`)
   }
@@ -150,11 +153,21 @@ export async function getHealth(): Promise<{ status: string }> {
 }
 
 export async function search(request: SearchRequest): Promise<SearchResponse> {
-  const response = await fetch(`${API_BASE_URL}/search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      cache: "no-store",
+    })
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Search request could not reach the backend: ${error.message}`
+        : "Search request could not reach the backend."
+    )
+  }
 
   if (!response.ok) {
     const detail = await readErrorDetail(response)
@@ -167,11 +180,21 @@ export async function search(request: SearchRequest): Promise<SearchResponse> {
 export async function editScenario(
   request: ScenarioEditRequest
 ): Promise<ScenarioEditResponse> {
-  const response = await fetch(`${API_BASE_URL}/scenario/edit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/scenario/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      cache: "no-store",
+    })
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Scenario edit request could not reach the backend: ${error.message}`
+        : "Scenario edit request could not reach the backend."
+    )
+  }
 
   if (!response.ok) {
     const detail = await readErrorDetail(response)
@@ -184,11 +207,21 @@ export async function editScenario(
 export async function generateScenarioReport(
   request: ScenarioReportRequest
 ): Promise<ScenarioReportResponse> {
-  const response = await fetch(`${API_BASE_URL}/scenario/report`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/scenario/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      cache: "no-store",
+    })
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Scenario report request could not reach the backend: ${error.message}`
+        : "Scenario report request could not reach the backend."
+    )
+  }
 
   if (!response.ok) {
     const detail = await readErrorDetail(response)
