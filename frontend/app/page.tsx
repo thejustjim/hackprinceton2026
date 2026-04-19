@@ -4,8 +4,6 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
-  useId,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -15,6 +13,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
+import { DashboardLaunchOverlay } from "@/components/launch/dashboard-launch-overlay"
 import { cn } from "@/lib/utils"
 
 const IMG = {
@@ -42,16 +41,6 @@ type Feature = {
   title: string
   body: string
   bullets: string[]
-}
-
-type DashboardLaunchStatus = {
-  detail: string
-  title: string
-}
-
-type DashboardLaunchState = {
-  progress: number
-  status: DashboardLaunchStatus
 }
 
 const HERO_SIGNALS = [
@@ -111,30 +100,6 @@ const FEATURES: Feature[] = [
   },
 ]
 
-const DASHBOARD_LAUNCH_STATUSES = {
-  entering: {
-    detail: "Opening the next-step chooser for CSV intake or the demo path.",
-    title: "Opening launch options",
-  },
-  priming: {
-    detail: "Preparing the intake surface and demo handoff.",
-    title: "Priming launch flow",
-  },
-  shell: {
-    detail: "Loading the chooser shell before the upload tools appear.",
-    title: "Loading chooser shell",
-  },
-  sync: {
-    detail: "Finalizing upload intake and demo entry states.",
-    title: "Syncing launch state",
-  },
-} as const
-
-const DEFAULT_DASHBOARD_LAUNCH_STATE: DashboardLaunchState = {
-  progress: 0,
-  status: DASHBOARD_LAUNCH_STATUSES.priming,
-}
-
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
@@ -184,186 +149,6 @@ function usePrefersReducedMotionSnapshot() {
     },
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     () => false
-  )
-}
-
-function easeOutQuart(x: number) {
-  return 1 - Math.pow(1 - x, 4)
-}
-
-function DashboardLaunchOverlay({
-  active,
-  progress,
-  reducedMotion,
-  status,
-}: {
-  active: boolean
-  progress: number
-  reducedMotion: boolean
-  status: DashboardLaunchStatus
-}) {
-  const routeGradientId = useId().replace(/:/g, "")
-  const ring = useMemo(() => {
-    const radius = 120
-    const circumference = radius * 2 * Math.PI
-    return { radius, circumference }
-  }, [])
-  const dashOffset = useMemo(() => {
-    const eased = easeOutQuart(progress / 100)
-    return ring.circumference - eased * ring.circumference
-  }, [progress, ring.circumference])
-
-  if (!active) return null
-
-  return (
-    <div
-      aria-hidden
-      className={cn(
-        "landing-launch fixed inset-0 z-[100] grid place-items-center overflow-hidden px-6",
-        reducedMotion && "is-reduced-motion"
-      )}
-    >
-      <div className="landing-launch__backdrop absolute inset-0" />
-      <div className="landing-launch__grid absolute inset-0" />
-      <div className="landing-launch__glow absolute inset-0" />
-
-      <svg
-        className="landing-launch__routes pointer-events-none absolute inset-0 h-full w-full"
-        viewBox="0 0 1200 1200"
-        fill="none"
-      >
-        <defs>
-          <linearGradient
-            id={routeGradientId}
-            x1="180"
-            x2="1010"
-            y1="940"
-            y2="180"
-          >
-            <stop offset="0" stopColor="rgba(126,255,212,0)" />
-            <stop offset="0.22" stopColor="rgba(126,255,212,0.86)" />
-            <stop offset="0.58" stopColor="rgba(120,220,255,0.76)" />
-            <stop offset="1" stopColor="rgba(120,220,255,0)" />
-          </linearGradient>
-        </defs>
-
-        <path
-          className="landing-launch__route landing-launch__route--1"
-          d="M120 940C260 770 380 610 546 616C710 624 780 454 1086 256"
-          stroke={`url(#${routeGradientId})`}
-          strokeLinecap="round"
-          strokeWidth="2.5"
-        />
-        <path
-          className="landing-launch__route landing-launch__route--2"
-          d="M182 1054C346 864 514 778 650 690C818 580 888 438 1012 310"
-          stroke={`url(#${routeGradientId})`}
-          strokeLinecap="round"
-          strokeWidth="1.8"
-        />
-        <path
-          className="landing-launch__route landing-launch__route--3"
-          d="M208 250C388 308 468 430 578 470C694 512 824 454 1000 542"
-          stroke={`url(#${routeGradientId})`}
-          strokeLinecap="round"
-          strokeWidth="1.5"
-        />
-
-        {[
-          { cx: 214, cy: 1030, delay: "0ms" },
-          { cx: 546, cy: 616, delay: "280ms" },
-          { cx: 836, cy: 438, delay: "460ms" },
-          { cx: 1008, cy: 310, delay: "640ms" },
-        ].map((node) => (
-          <g
-            key={`${node.cx}-${node.cy}`}
-            className="landing-launch__node"
-            style={{ animationDelay: node.delay }}
-          >
-            <circle
-              className="landing-launch__node-aura"
-              cx={node.cx}
-              cy={node.cy}
-              fill="rgba(124,255,214,0.08)"
-              r="42"
-            />
-            <circle
-              className="landing-launch__node-aura landing-launch__node-aura--inner"
-              cx={node.cx}
-              cy={node.cy}
-              fill="rgba(124,255,214,0.18)"
-              r="28"
-            />
-            <circle
-              cx={node.cx}
-              cy={node.cy}
-              fill="rgba(124,255,214,0.42)"
-              r="10"
-            />
-            <circle cx={node.cx} cy={node.cy} fill="#bafde6" r="4" />
-          </g>
-        ))}
-      </svg>
-
-      <div className="landing-launch__content relative z-10 mx-auto flex w-full max-w-md flex-col items-center text-center">
-        <div className="landing-launch__badge rounded-full border border-white/12 bg-white/6 px-4 py-2 backdrop-blur-xl">
-          <GreenChainLogo variant="onDark" className="h-6 w-auto opacity-90" />
-        </div>
-
-        <div className="relative mt-8 flex h-72 w-72 items-center justify-center md:h-80 md:w-80">
-          <div className="landing-launch__halo absolute inset-[0.85rem]" />
-          <div className="landing-launch__halo landing-launch__halo--mid absolute inset-[2.5rem]" />
-          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 256 256">
-            <circle
-              className="text-white/8"
-              strokeWidth="1.5"
-              stroke="currentColor"
-              fill="transparent"
-              r={ring.radius}
-              cx="128"
-              cy="128"
-            />
-            <circle
-              className="landing-launch__ring text-primary/90 drop-shadow-[0_0_20px_rgba(126,255,212,0.22)]"
-              strokeWidth="2.25"
-              stroke="currentColor"
-              fill="transparent"
-              r={ring.radius}
-              cx="128"
-              cy="128"
-              strokeLinecap="round"
-              style={{
-                strokeDasharray: `${ring.circumference} ${ring.circumference}`,
-                strokeDashoffset: dashOffset,
-              }}
-            />
-          </svg>
-
-          <div className="landing-launch__halo landing-launch__halo--inner absolute inset-[4.9rem]" />
-          <div className="absolute inset-10 rounded-full border border-white/8 bg-white/[0.02] backdrop-blur-2xl" />
-          <div className="landing-launch__core absolute inset-[4.35rem] rounded-full bg-[radial-gradient(circle,_rgba(126,255,212,0.12),_rgba(12,18,19,0.02)_48%,_transparent_72%)]" />
-
-          <div className="landing-launch__value relative flex items-baseline gap-2">
-            <span className="text-7xl font-light tracking-[-0.08em] text-white md:text-8xl">
-              {progress}
-            </span>
-            <span className="text-2xl font-light text-white/36 md:text-3xl">
-              %
-            </span>
-          </div>
-        </div>
-
-        <p className="text-xs font-medium tracking-[0.34em] text-primary/72 uppercase">
-          Preparing next step
-        </p>
-        <h2 className="mt-4 text-3xl font-medium tracking-[-0.05em] text-white md:text-[2.15rem]">
-          {status.title}
-        </h2>
-        <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/56 md:text-[0.95rem]">
-          {status.detail}
-        </p>
-      </div>
-    </div>
   )
 }
 
@@ -869,7 +654,12 @@ function Hero({
 
   const syncVideo = useEffectEvent(() => {
     const video = videoRef.current
-    if (!video || prefersReducedMotion) return
+    if (!video) return
+
+    if (prefersReducedMotion || isLaunching) {
+      video.pause()
+      return
+    }
 
     video.defaultMuted = true
     video.muted = true
@@ -884,7 +674,7 @@ function Hero({
     const video = videoRef.current
     if (!video) return
 
-    if (prefersReducedMotion) {
+    if (prefersReducedMotion || isLaunching) {
       video.pause()
       return
     }
@@ -914,7 +704,7 @@ function Hero({
       video.removeEventListener("error", onError)
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [prefersReducedMotion])
+  }, [isLaunching, prefersReducedMotion])
 
   const fadeUp = (delay: number) => ({
     style: {
@@ -966,7 +756,7 @@ function Hero({
         <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(2,7,10,0.12)_0%,_rgba(2,7,10,0.18)_28%,_rgba(2,7,10,0.72)_72%,_rgba(2,7,10,0.96)_100%)]" />
       </div>
 
-      <HeroThreeField disabled={prefersReducedMotion} />
+      <HeroThreeField disabled={prefersReducedMotion || isLaunching} />
       <div className="landing-grid absolute inset-0 -z-10 opacity-55" />
 
       <div className="relative mx-auto flex min-h-[100svh] w-full max-w-screen-2xl flex-col px-6 pt-6 pb-8 md:px-10">
@@ -1227,21 +1017,8 @@ function Footer({
 export default function LandingPage() {
   const router = useRouter()
   const prefersReducedMotion = usePrefersReducedMotionSnapshot()
-  const [launchState, setLaunchState] = useState<DashboardLaunchState | null>(
-    null
-  )
-  const launchRunIdRef = useRef(0)
-  const mountedRef = useRef(true)
-  const progressRef = useRef(DEFAULT_DASHBOARD_LAUNCH_STATE.progress)
-  const isLaunching = launchState !== null
-
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      launchRunIdRef.current += 1
-    }
-  }, [])
+  const [isLaunching, setIsLaunching] = useState(false)
+  const [launchOverlayRunId, setLaunchOverlayRunId] = useState(0)
 
   useEffect(() => {
     router.prefetch("/launch")
@@ -1260,172 +1037,21 @@ export default function LandingPage() {
 
   const handleLaunchDashboard = useCallback(() => {
     if (isLaunching) return
+    setLaunchOverlayRunId((currentRunId) => currentRunId + 1)
+    setIsLaunching(true)
+  }, [isLaunching])
 
-    const runId = launchRunIdRef.current + 1
-    launchRunIdRef.current = runId
-    progressRef.current = DEFAULT_DASHBOARD_LAUNCH_STATE.progress
-    setLaunchState(DEFAULT_DASHBOARD_LAUNCH_STATE)
-
-    const shouldContinue = () =>
-      mountedRef.current && launchRunIdRef.current === runId
-
-    const updateLaunchState = (
-      updater: (currentState: DashboardLaunchState) => DashboardLaunchState
-    ) => {
-      if (!shouldContinue()) return
-
-      setLaunchState((currentState) => {
-        if (!currentState) return currentState
-        return updater(currentState)
-      })
-    }
-
-    const setProgress = (nextProgress: number) => {
-      const rounded = Math.round(clamp(nextProgress, 0, 100))
-      progressRef.current = rounded
-      updateLaunchState((currentState) => ({
-        ...currentState,
-        progress: rounded,
-      }))
-    }
-
-    const setStatus = (status: DashboardLaunchStatus) => {
-      updateLaunchState((currentState) => ({
-        ...currentState,
-        status,
-      }))
-    }
-
-    const wait = (duration: number) =>
-      new Promise<void>((resolve) => {
-        window.setTimeout(resolve, duration)
-      })
-
-    const animateProgress = (from: number, to: number, duration: number) =>
-      new Promise<void>((resolve) => {
-        if (!shouldContinue()) {
-          resolve()
-          return
-        }
-
-        if (duration <= 0) {
-          setProgress(to)
-          resolve()
-          return
-        }
-
-        let raf = 0
-        const start = performance.now()
-        const tick = (now: number) => {
-          if (!shouldContinue()) {
-            cancelAnimationFrame(raf)
-            resolve()
-            return
-          }
-
-          const progress = clamp((now - start) / duration, 0, 1)
-          const eased = prefersReducedMotion ? progress : easeOutQuart(progress)
-          const value = from + (to - from) * eased
-          setProgress(value)
-
-          if (progress < 1) {
-            raf = requestAnimationFrame(tick)
-            return
-          }
-
-          resolve()
-        }
-
-        raf = requestAnimationFrame(tick)
-      })
-
-    const settleLaunchStage = (duration: number) =>
-      new Promise<void>((resolve) => {
-        if (!shouldContinue() || duration <= 0) {
-          resolve()
-          return
-        }
-
-        let raf = 0
-        const start = performance.now()
-        const tick = (now: number) => {
-          if (!shouldContinue()) {
-            cancelAnimationFrame(raf)
-            resolve()
-            return
-          }
-
-          const elapsed = now - start
-          const progress = clamp(elapsed / duration, 0, 1)
-          const eased = prefersReducedMotion ? progress : easeOutQuart(progress)
-          const visualTarget = 68 + (88 - 68) * eased
-          setProgress(Math.max(progressRef.current, visualTarget))
-
-          if (elapsed >= duration) {
-            resolve()
-            return
-          }
-
-          raf = requestAnimationFrame(tick)
-        }
-
-        raf = requestAnimationFrame(tick)
-      })
-
-    void (async () => {
-      const timings = prefersReducedMotion
-        ? {
-            entering: 220,
-            hold: 220,
-            prime: 220,
-            shell: 360,
-            syncCommit: 180,
-            sync: 320,
-          }
-        : {
-            entering: 880,
-            hold: 420,
-            prime: 560,
-            shell: 1320,
-            syncCommit: 620,
-            sync: 1220,
-          }
-
-      router.prefetch("/launch")
-
-      setStatus(DASHBOARD_LAUNCH_STATUSES.priming)
-      await animateProgress(0, 24, timings.prime)
-      if (!shouldContinue()) return
-
-      setStatus(DASHBOARD_LAUNCH_STATUSES.shell)
-      await animateProgress(24, 68, timings.shell)
-      if (!shouldContinue()) return
-
-      setStatus(DASHBOARD_LAUNCH_STATUSES.sync)
-      await settleLaunchStage(timings.sync)
-      if (!shouldContinue()) return
-
-      await animateProgress(progressRef.current, 92, timings.syncCommit)
-      if (!shouldContinue()) return
-
-      setStatus(DASHBOARD_LAUNCH_STATUSES.entering)
-      await animateProgress(progressRef.current, 100, timings.entering)
-      if (!shouldContinue()) return
-
-      await wait(timings.hold)
-      if (!shouldContinue()) return
-
-      router.push("/launch")
-    })()
-  }, [isLaunching, prefersReducedMotion, router])
+  const handleLaunchOverlayComplete = useCallback(() => {
+    router.push("/launch")
+  }, [router])
 
   return (
     <main className="landing-page min-h-svh overflow-x-hidden text-foreground">
       <DashboardLaunchOverlay
         active={isLaunching}
-        progress={launchState?.progress ?? 0}
+        key={launchOverlayRunId}
+        onComplete={handleLaunchOverlayComplete}
         reducedMotion={prefersReducedMotion}
-        status={launchState?.status ?? DASHBOARD_LAUNCH_STATUSES.priming}
       />
       <Hero
         introReady
