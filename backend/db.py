@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -35,13 +36,9 @@ def get_db_path() -> str:
     # Fall back to local SQLite inside backend/.
     return str(Path(__file__).parent / "greenchain.db")
 
-
-DB_PATH = get_db_path()
-
-
 @contextmanager
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -79,6 +76,28 @@ def init_db() -> None:
                 result_count INTEGER,
                 created_at REAL NOT NULL
             )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS scenario_edit_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scenario_id TEXT NOT NULL,
+                parent_id INTEGER,
+                op_type TEXT NOT NULL,
+                prompt_text TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                is_active INTEGER NOT NULL,
+                FOREIGN KEY(parent_id) REFERENCES scenario_edit_history(id)
+            )
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_scenario_edit_history_scenario_active
+            ON scenario_edit_history (scenario_id, is_active, id DESC)
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_scenario_edit_history_parent
+            ON scenario_edit_history (parent_id)
         """)
 
         # Legacy/CLAUDE.md schema — kept for parity. Runtime does NOT read these.
@@ -123,8 +142,6 @@ CACHE_TTL_SECONDS = 24 * 60 * 60  # 24h
 
 
 def cache_get(product: str, country_iso: str, transport_mode: str, destination: str) -> str | None:
-    import time
-
     with connect() as conn:
         row = conn.execute(
             """
@@ -147,8 +164,6 @@ def cache_put(
     destination: str,
     payload_json: str,
 ) -> None:
-    import time
-
     with connect() as conn:
         conn.execute(
             """
@@ -170,8 +185,6 @@ def audit_search(
     duration_seconds: float,
     result_count: int,
 ) -> None:
-    import time
-
     with connect() as conn:
         conn.execute(
             """
@@ -192,6 +205,111 @@ def audit_search(
         )
 
 
+def get_active_scenario_revision(scenario_id: str) -> sqlite3.Row | None:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, scenario_id, parent_id, op_type, prompt_text, snapshot_json, created_at, is_active
+            FROM scenario_edit_history
+            WHERE scenario_id = ? AND is_active = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (scenario_id,),
+        ).fetchone()
+
+
+def get_scenario_revision(revision_id: int) -> sqlite3.Row | None:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, scenario_id, parent_id, op_type, prompt_text, snapshot_json, created_at, is_active
+            FROM scenario_edit_history
+            WHERE id = ?
+            """,
+            (revision_id,),
+        ).fetchone()
+
+
+def ensure_scenario_history_baseline(
+    scenario_id: str,
+    snapshot_json: str,
+    prompt_text: str = "[baseline]",
+) -> sqlite3.Row:
+    existing_active = get_active_scenario_revision(scenario_id)
+    if existing_active is not None:
+        return existing_active
+
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE scenario_edit_history
+            SET is_active = 0
+            WHERE scenario_id = ?
+            """,
+            (scenario_id,),
+        )
+        cursor = conn.execute(
+            """
+            INSERT INTO scenario_edit_history
+                (scenario_id, parent_id, op_type, prompt_text, snapshot_json, created_at, is_active)
+            VALUES (?, NULL, 'baseline', ?, ?, ?, 1)
+            """,
+            (scenario_id, prompt_text, snapshot_json, time.time()),
+        )
+        revision_id = cursor.lastrowid
+
+    row = get_scenario_revision(revision_id)
+    if row is None:
+        raise RuntimeError("Failed to create baseline scenario history revision.")
+    return row
+
+
+def append_scenario_revision(
+    scenario_id: str,
+    parent_id: int | None,
+    op_type: str,
+    prompt_text: str,
+    snapshot_json: str,
+) -> sqlite3.Row:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE scenario_edit_history
+            SET is_active = 0
+            WHERE scenario_id = ?
+            """,
+            (scenario_id,),
+        )
+        cursor = conn.execute(
+            """
+            INSERT INTO scenario_edit_history
+                (scenario_id, parent_id, op_type, prompt_text, snapshot_json, created_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+            """,
+            (scenario_id, parent_id, op_type, prompt_text, snapshot_json, time.time()),
+        )
+        revision_id = cursor.lastrowid
+
+    row = get_scenario_revision(revision_id)
+    if row is None:
+        raise RuntimeError("Failed to append scenario history revision.")
+    return row
+
+
+def count_scenario_revisions(scenario_id: str) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS revision_count
+            FROM scenario_edit_history
+            WHERE scenario_id = ?
+            """,
+            (scenario_id,),
+        ).fetchone()
+    return int(row["revision_count"]) if row else 0
+
+
 if __name__ == "__main__":
     init_db()
-    print(f"Database initialised at {DB_PATH}")
+    print(f"Database initialised at {get_db_path()}")

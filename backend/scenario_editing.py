@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -7,6 +8,13 @@ from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
+from .db import (
+    append_scenario_revision,
+    ensure_scenario_history_baseline,
+    get_active_scenario_revision,
+    get_scenario_revision,
+)
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -157,10 +165,16 @@ class EditableScenarioPayload(StrictModel):
     unit: str
 
 
-class ScenarioEditModelOutputPayload(StrictModel):
+class ScenarioEditIntentPayload(StrictModel):
     message: str
-    scenario_json: str | None = None
-    status: Literal["applied", "rejected"]
+    op: Literal["filter", "undo", "reject"]
+    undo_steps: int = Field(default=1, ge=1)
+
+
+class ScenarioEditNodeDecisionPayload(StrictModel):
+    decision: Literal["keep", "remove"]
+    message: str
+    reason: str
 
 
 class ScenarioEditResponsePayload(StrictModel):
@@ -496,43 +510,333 @@ def normalize_edited_scenario(
     )
 
 
-def _build_edit_messages(prompt: str, scenario: SupplyScenarioPayload) -> list[dict[str, str]]:
-    scenario_json = json.dumps(
-        _to_editable_scenario(scenario).model_dump(mode="json"),
-        separators=(",", ":"),
-    )
+def _build_scenario_summary(scenario: SupplyScenarioPayload) -> dict[str, object]:
+    return {
+        "scenario_id": scenario.id,
+        "title": scenario.title,
+        "destination": {
+            "label": scenario.destination.label,
+            "country": scenario.destination.location.country,
+            "country_code": scenario.destination.location.countryCode,
+        },
+        "component_count": len(scenario.components),
+        "alternate_manufacturer_count": sum(
+            1 for manufacturer in scenario.manufacturers if not manufacturer.isCurrent
+        ),
+        "components": [
+            {
+                "id": component.id,
+                "label": component.label,
+                "current_manufacturers": [
+                    manufacturer.name
+                    for manufacturer in scenario.manufacturers
+                    if manufacturer.componentId == component.id
+                    and manufacturer.isCurrent
+                ],
+                "alternate_count": sum(
+                    1
+                    for manufacturer in scenario.manufacturers
+                    if manufacturer.componentId == component.id
+                    and not manufacturer.isCurrent
+                ),
+            }
+            for component in scenario.components
+        ],
+    }
+
+
+def _build_alternate_node_summary(
+    manufacturer: SupplyScenarioManufacturerNodePayload,
+) -> dict[str, object]:
+    return {
+        "id": manufacturer.id,
+        "name": manufacturer.name,
+        "country": manufacturer.location.country,
+        "country_code": manufacturer.location.countryCode,
+        "city": manufacturer.location.city,
+        "certifications": manufacturer.certifications,
+        "climate_risk_score": manufacturer.climateRiskScore,
+        "eco_score": manufacturer.ecoScore,
+        "grid_carbon_score": manufacturer.gridCarbonScore,
+        "manufacturing_emissions_tco2e": manufacturer.manufacturingEmissionsTco2e.model_dump(
+            mode="json"
+        ),
+        "transport_emissions_tco2e": manufacturer.transportEmissionsTco2e,
+    }
+
+
+def _build_intent_messages(
+    prompt: str, scenario: SupplyScenarioPayload
+) -> list[dict[str, str]]:
+    scenario_json = json.dumps(_build_scenario_summary(scenario), separators=(",", ":"))
     return [
         {
             "role": "system",
             "content": (
-                "You edit a supply-chain scenario JSON document. "
-                "You may filter, remove, reorder, or relabel components and manufacturers "
-                "when needed to satisfy the user's request. "
-                "Preserve the top-level object shape and keep the scenario internally consistent. "
-                "Required consistency rules: product.childIds must exactly match the component IDs in order; "
-                "each component.manufacturerIds must exactly match the IDs of manufacturers belonging to that component in order; "
-                "every manufacturer.componentId must reference an existing component; "
-                "each component must end with exactly one current manufacturer; "
-                "destination/product/component/manufacturer labels and locations must be non-empty. "
-                "Return only the editable scenario fields: "
-                "id, title, quantity, unit, product, destination, components, manufacturers. "
-                "Do not include graph, routes, stats, or updatedAt; those are rebuilt server-side. "
-                "If the user's request cannot be represented as scenario JSON, respond with status='rejected' "
-                "and explain why in message. If it can be safely applied, respond with "
-                "status='applied', a short message, and scenario_json containing the full "
-                "edited scenario JSON object serialized as a JSON string. "
-                "Return JSON only. No markdown fences or extra prose."
+                "You classify supply-chain dashboard prompts. "
+                "Return JSON only with fields: op, undo_steps, message. "
+                "Valid ops are: filter, undo, reject. "
+                "Use op='undo' when the prompt asks to revert or undo one or more prompt-made changes. "
+                "Set undo_steps to the number of changes to undo; default to 1. "
+                "Use op='filter' when the prompt asks to show, hide, keep, remove, limit, or otherwise filter manufacturer options. "
+                "Use op='reject' when the prompt is unrelated to filtering alternates or undoing prior prompt edits. "
+                "Current manufacturers, product nodes, and component nodes are always kept outside this classification."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Edit request:\n{prompt.strip()}\n\n"
-                "Current scenario JSON:\n"
+                f"User prompt:\n{prompt.strip()}\n\n"
+                "Scenario summary:\n"
                 f"{scenario_json}"
             ),
         },
     ]
+
+
+def _build_node_decision_messages(
+    prompt: str,
+    scenario: SupplyScenarioPayload,
+    component: SupplyScenarioComponentNodePayload,
+    manufacturer: SupplyScenarioManufacturerNodePayload,
+) -> list[dict[str, str]]:
+    component_current_manufacturers = [
+        node.name
+        for node in scenario.manufacturers
+        if node.componentId == component.id and node.isCurrent
+    ]
+    payload = {
+        "prompt": prompt.strip(),
+        "scenario": {
+            "title": scenario.title,
+            "destination": scenario.destination.location.country,
+        },
+        "component": {
+            "id": component.id,
+            "label": component.label,
+            "current_manufacturers": component_current_manufacturers,
+        },
+        "alternate_manufacturer": _build_alternate_node_summary(manufacturer),
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You decide whether a single alternate manufacturer should remain visible in a filtered supply-chain dashboard. "
+                "Current manufacturers, product nodes, and component nodes are always preserved elsewhere and are not part of this decision. "
+                "Return JSON only with fields: decision, message, reason. "
+                "Valid decisions are keep or remove. "
+                "Use keep if the manufacturer satisfies the prompt or if the prompt is ambiguous for this node. "
+                "Use remove only when the alternate clearly does not satisfy the prompt."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(payload, separators=(",", ":")),
+        },
+    ]
+
+
+async def _call_k2_json(
+    *,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    model: str,
+    base_url: str,
+    messages: list[dict[str, str]],
+    response_model: type[ScenarioEditIntentPayload] | type[ScenarioEditNodeDecisionPayload],
+    temperature: float = 0.1,
+) -> ScenarioEditIntentPayload | ScenarioEditNodeDecisionPayload:
+    parse_error: str | None = None
+    conversation = list(messages)
+
+    for attempt in range(1, 4):
+        request_body = {
+            "model": model,
+            "messages": conversation,
+            "stream": False,
+            "temperature": temperature,
+        }
+
+        try:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=request_body,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text.strip()
+            raise ScenarioEditProviderError(
+                f"K2 Think request failed with {exc.response.status_code}: {detail or exc.response.reason_phrase}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ScenarioEditProviderError(
+                f"K2 Think request failed: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        payload = response.json()
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ScenarioEditProviderError(
+                "K2 Think response did not include a chat completion payload."
+            ) from exc
+
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+            )
+
+        try:
+            decoded = json.loads(content)
+            return response_model.model_validate(decoded)
+        except Exception as exc:  # noqa: BLE001
+            parse_error = str(exc)
+
+        if attempt < 3:
+            conversation = [
+                *conversation,
+                {
+                    "role": "assistant",
+                    "content": content if isinstance(content, str) else json.dumps(content),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous response was invalid. "
+                        f"Problem: {parse_error}. "
+                        "Return only valid JSON matching the required response schema."
+                    ),
+                },
+            ]
+
+    raise ScenarioEditProviderError(
+        "K2 Think failed to return valid JSON for the scenario edit response after 3 attempts."
+        + (f" Last error: {parse_error}" if parse_error else "")
+    )
+
+
+async def classify_prompt_with_k2(
+    *,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    model: str,
+    base_url: str,
+    prompt: str,
+    scenario: SupplyScenarioPayload,
+) -> ScenarioEditIntentPayload:
+    result = await _call_k2_json(
+        client=client,
+        headers=headers,
+        model=model,
+        base_url=base_url,
+        messages=_build_intent_messages(prompt, scenario),
+        response_model=ScenarioEditIntentPayload,
+    )
+    return result
+
+
+async def evaluate_alternate_node_with_k2(
+    *,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    model: str,
+    base_url: str,
+    prompt: str,
+    scenario: SupplyScenarioPayload,
+    component: SupplyScenarioComponentNodePayload,
+    manufacturer: SupplyScenarioManufacturerNodePayload,
+) -> ScenarioEditNodeDecisionPayload:
+    result = await _call_k2_json(
+        client=client,
+        headers=headers,
+        model=model,
+        base_url=base_url,
+        messages=_build_node_decision_messages(prompt, scenario, component, manufacturer),
+        response_model=ScenarioEditNodeDecisionPayload,
+    )
+    return result
+
+
+def apply_filtered_scenario(
+    original_scenario: SupplyScenarioPayload,
+    keep_set: set[str],
+) -> SupplyScenarioPayload:
+    filtered_manufacturers = [
+        manufacturer
+        for manufacturer in original_scenario.manufacturers
+        if manufacturer.isCurrent or manufacturer.id in keep_set
+    ]
+    component_ids = {component.id for component in original_scenario.components}
+    filtered_components = [
+        component.model_copy(
+            update={
+                "manufacturerIds": [
+                    manufacturer.id
+                    for manufacturer in filtered_manufacturers
+                    if manufacturer.componentId == component.id
+                ]
+            }
+        )
+        for component in original_scenario.components
+        if component.id in component_ids
+    ]
+    candidate = EditableScenarioPayload(
+        components=filtered_components,
+        destination=original_scenario.destination,
+        id=original_scenario.id,
+        manufacturers=filtered_manufacturers,
+        product=original_scenario.product,
+        quantity=original_scenario.quantity,
+        title=original_scenario.title,
+        unit=original_scenario.unit,
+    )
+    return normalize_edited_scenario(original_scenario, candidate)
+
+
+def _load_scenario_from_snapshot(snapshot_json: str) -> SupplyScenarioPayload:
+    try:
+        payload = json.loads(snapshot_json)
+    except json.JSONDecodeError as exc:
+        raise ScenarioEditValidationError(
+            "Stored scenario history contained invalid JSON."
+        ) from exc
+    return SupplyScenarioPayload.model_validate(payload)
+
+
+def restore_scenario_revision(
+    scenario_id: str, steps: int, prompt: str
+) -> tuple[SupplyScenarioPayload, bool]:
+    active_revision = get_active_scenario_revision(scenario_id)
+    if active_revision is None:
+        raise ScenarioEditValidationError("No scenario history was found to undo.")
+
+    target_revision = active_revision
+    remaining_steps = max(1, steps)
+    while remaining_steps > 0 and target_revision["parent_id"] is not None:
+        parent_revision = get_scenario_revision(int(target_revision["parent_id"]))
+        if parent_revision is None:
+            break
+        target_revision = parent_revision
+        remaining_steps -= 1
+
+    reached_beginning = remaining_steps > 0 and target_revision["parent_id"] is None
+    restored_scenario = _load_scenario_from_snapshot(target_revision["snapshot_json"])
+    append_scenario_revision(
+        scenario_id=scenario_id,
+        parent_id=target_revision["parent_id"],
+        op_type="undo",
+        prompt_text=prompt,
+        snapshot_json=target_revision["snapshot_json"],
+    )
+    return restored_scenario, reached_beginning
+
+
+def _scenario_to_snapshot_json(scenario: SupplyScenarioPayload) -> str:
+    return json.dumps(scenario.model_dump(mode="json"), separators=(",", ":"))
 
 
 async def edit_scenario_with_k2(
@@ -545,106 +849,114 @@ async def edit_scenario_with_k2(
         "Content-Type": "application/json",
     }
 
-    messages = _build_edit_messages(prompt, scenario)
+    baseline_snapshot = _scenario_to_snapshot_json(scenario)
+    ensure_scenario_history_baseline(scenario.id, baseline_snapshot)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        parse_error: str | None = None
+        intent = await classify_prompt_with_k2(
+            client=client,
+            headers=headers,
+            model=model,
+            base_url=base_url,
+            prompt=prompt,
+            scenario=scenario,
+        )
 
-        for attempt in range(1, 4):
-            request_body = {
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                "temperature": 0.1,
-            }
+        if intent.op == "reject":
+            return ScenarioEditResponsePayload(
+                message=intent.message,
+                status="rejected",
+            )
 
-            try:
-                response = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers=headers,
-                    json=request_body,
+        if intent.op == "undo":
+            restored_scenario, reached_beginning = restore_scenario_revision(
+                scenario.id, intent.undo_steps, prompt
+            )
+            message = intent.message
+            if reached_beginning:
+                message = (
+                    f"{intent.message} Reached the earliest available scenario state."
                 )
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                detail = exc.response.text.strip()
-                raise ScenarioEditProviderError(
-                    f"K2 Think request failed with {exc.response.status_code}: {detail or exc.response.reason_phrase}"
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise ScenarioEditProviderError(
-                    f"K2 Think request failed: {type(exc).__name__}: {exc}"
-                ) from exc
+            return ScenarioEditResponsePayload(
+                message=message,
+                scenario=restored_scenario,
+                status="applied",
+            )
 
-            payload = response.json()
-            try:
-                content = payload["choices"][0]["message"]["content"]
-            except (KeyError, IndexError, TypeError) as exc:
-                raise ScenarioEditProviderError(
-                    "K2 Think response did not include a chat completion payload."
-                ) from exc
+        active_revision = get_active_scenario_revision(scenario.id)
+        if active_revision is None:
+            raise ScenarioEditValidationError("No active scenario history revision was found.")
 
-            if isinstance(content, list):
-                content = "".join(
-                    part.get("text", "")
-                    for part in content
-                    if isinstance(part, dict)
-                )
+        alternate_manufacturers = [
+            manufacturer
+            for manufacturer in scenario.manufacturers
+            if not manufacturer.isCurrent
+        ]
+        if not alternate_manufacturers:
+            return ScenarioEditResponsePayload(
+                message="No alternate manufacturers were available to filter.",
+                scenario=scenario,
+                status="applied",
+            )
 
-            try:
-                decoded = json.loads(content)
-                model_output = ScenarioEditModelOutputPayload.model_validate(decoded)
-                if model_output.status == "rejected":
-                    return ScenarioEditResponsePayload(
-                        message=model_output.message,
-                        status="rejected",
-                    )
+        component_by_id = {component.id: component for component in scenario.components}
+        keep_ids: set[str] = set()
+        evaluation_warnings: list[str] = []
+        semaphore = asyncio.Semaphore(6)
 
-                if not model_output.scenario_json:
-                    raise ValueError(
-                        "K2 Think returned an applied response without scenario_json."
-                    )
-
-                scenario_payload = json.loads(model_output.scenario_json)
+        async def evaluate_manufacturer(
+            manufacturer: SupplyScenarioManufacturerNodePayload,
+        ) -> tuple[str, bool]:
+            component = component_by_id[manufacturer.componentId]
+            async with semaphore:
                 try:
-                    editable_scenario = EditableScenarioPayload.model_validate(
-                        scenario_payload
+                    result = await evaluate_alternate_node_with_k2(
+                        client=client,
+                        headers=headers,
+                        model=model,
+                        base_url=base_url,
+                        prompt=prompt,
+                        scenario=scenario,
+                        component=component,
+                        manufacturer=manufacturer,
                     )
-                except Exception:
-                    editable_scenario = _to_editable_scenario(
-                        SupplyScenarioPayload.model_validate(scenario_payload)
+                except ScenarioEditProviderError:
+                    evaluation_warnings.append(
+                        f"Preserved {manufacturer.name} because K2 evaluation failed."
                     )
-            except (json.JSONDecodeError, ValueError) as exc:
-                parse_error = str(exc)
-            except Exception as exc:  # noqa: BLE001
-                parse_error = (
-                    "K2 Think returned a scenario payload that failed validation: "
-                    f"{exc}"
-                )
-            else:
-                return ScenarioEditResponsePayload(
-                    message=model_output.message,
-                    scenario=normalize_edited_scenario(scenario, editable_scenario),
-                    status="applied",
-                )
+                    return manufacturer.id, True
 
-            if attempt < 3:
-                messages = [
-                    *messages,
-                    {
-                        "role": "assistant",
-                        "content": content if isinstance(content, str) else json.dumps(content),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            "Your previous response was invalid. "
-                            f"Problem: {parse_error}. "
-                            "Return only valid JSON matching the required response schema."
-                        ),
-                    },
-                ]
+            return manufacturer.id, result.decision == "keep"
 
-    raise ScenarioEditProviderError(
-        "K2 Think failed to return valid JSON for the scenario edit response after 3 attempts."
-        + (f" Last error: {parse_error}" if parse_error else "")
-    )
+        decisions = await asyncio.gather(
+            *(evaluate_manufacturer(manufacturer) for manufacturer in alternate_manufacturers)
+        )
+        keep_ids.update(
+            manufacturer_id
+            for manufacturer_id, should_keep in decisions
+            if should_keep
+        )
+
+        filtered_scenario = apply_filtered_scenario(scenario, keep_ids)
+        append_scenario_revision(
+            scenario_id=scenario.id,
+            parent_id=int(active_revision["id"]),
+            op_type="filter",
+            prompt_text=prompt,
+            snapshot_json=_scenario_to_snapshot_json(filtered_scenario),
+        )
+
+        removed_count = sum(1 for _, should_keep in decisions if not should_keep)
+        kept_count = len(keep_ids)
+        message = (
+            f"{intent.message} Kept {kept_count} alternate manufacturer"
+            f"{'' if kept_count == 1 else 's'} and removed {removed_count}."
+        )
+        if evaluation_warnings:
+            message = f"{message} {' '.join(evaluation_warnings)}"
+
+        return ScenarioEditResponsePayload(
+            message=message,
+            scenario=filtered_scenario,
+            status="applied",
+        )
