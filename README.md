@@ -38,6 +38,10 @@ If `/search` with `components` returns **502** or the dashboard shows a search e
 
 On startup, the backend prints warnings when `BRAVE_API_KEY` or Dedalus/Anthropic keys are missing.
 
+### Optional: route `fetch_url` through a Dedalus Machine
+
+Set `GREENCHAIN_USE_DEDALUS_MACHINE=1` in `backend/.env` to provision a persistent Dedalus Machine (KVM-isolated Linux VM) at startup and run the agent's sustainability-page crawls (`fetch_url` tool) inside it via the Machine Executions API. HTML parsing stays in-process; only raw HTTP egress runs inside the VM. Adds ~3-5s to backend startup while the Machine boots, and falls back to local `httpx` on any error so the demo never breaks. The Machine is deleted on shutdown.
+
 ## Frontend setup
 
 ```bash
