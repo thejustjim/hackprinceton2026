@@ -11,6 +11,7 @@ from backend.db import (
     count_scenario_revisions,
     ensure_scenario_history_baseline,
     get_active_scenario_revision,
+    get_baseline_scenario_revision,
     init_db,
 )
 from backend.scenario_editing import (
@@ -18,6 +19,7 @@ from backend.scenario_editing import (
     ScenarioEditIntentPayload,
     ScenarioEditProviderError,
     SupplyScenarioPayload,
+    _extract_json_object_text,
     _build_intent_messages,
     _to_editable_scenario,
     apply_filtered_scenario,
@@ -326,6 +328,7 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
             json.dumps(scenario.model_dump(mode="json")),
         )
         self.assertEqual(baseline["op_type"], "baseline")
+        self.assertEqual(get_baseline_scenario_revision(scenario.id)["id"], baseline["id"])
         self.assertEqual(count_scenario_revisions(scenario.id), 1)
 
         filtered = apply_filtered_scenario(scenario, keep_set=set())
@@ -405,18 +408,45 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("stats", parsed)
         self.assertEqual(parsed["alternate_manufacturer_count"], 1)
 
+    def test_extract_json_object_text_handles_reasoning_prefix(self) -> None:
+        raw = (
+            'The prompt asks for undo.\n</think>\n'
+            '{"op":"undo","undo_steps":1,"message":"Undoing the last change."}'
+        )
+        extracted = _extract_json_object_text(raw)
+        parsed = json.loads(extracted)
+        self.assertEqual(parsed["op"], "undo")
+        self.assertEqual(parsed["undo_steps"], 1)
+
+    def test_extract_json_object_text_handles_fenced_json(self) -> None:
+        raw = (
+            "```json\n"
+            '{"decision":"keep","message":"Keep it.","reason":"Matches filter."}\n'
+            "```"
+        )
+        extracted = _extract_json_object_text(raw)
+        parsed = json.loads(extracted)
+        self.assertEqual(parsed["decision"], "keep")
+
+    def test_extract_json_object_text_rejects_missing_json(self) -> None:
+        with self.assertRaisesRegex(ValueError, "did not contain a JSON object"):
+            _extract_json_object_text("No structured output here")
+
     async def test_classify_prompt_with_k2_parses_undo_steps(self) -> None:
         scenario = make_scenario()
         response_payload = {
             "choices": [
                 {
                     "message": {
-                        "content": json.dumps(
-                            {
-                                "op": "undo",
-                                "undo_steps": 2,
-                                "message": "Undoing the last 2 changes.",
-                            }
+                        "content": (
+                            "I will classify this as undo.\n</think>\n"
+                            + json.dumps(
+                                {
+                                    "op": "undo",
+                                    "undo_steps": 2,
+                                    "message": "Undoing the last 2 changes.",
+                                }
+                            )
                         )
                     }
                 }
@@ -595,6 +625,111 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         assert undone.scenario is not None
         self.assertEqual(len(undone.scenario.manufacturers), 2)
         self.assertEqual(undone.scenario.manufacturers[1].id, "mfr_alt")
+
+    async def test_edit_scenario_with_k2_filters_from_baseline_each_time(self) -> None:
+        scenario = make_scenario()
+        classify_filter_remove = Mock()
+        classify_filter_remove.raise_for_status.return_value = None
+        classify_filter_remove.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "op": "filter",
+                                "undo_steps": 1,
+                                "message": "Filtering to South America.",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        node_remove = Mock()
+        node_remove.raise_for_status.return_value = None
+        node_remove.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "decision": "remove",
+                                "message": "Remove this alternate.",
+                                "reason": "Germany is not in South America.",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        classify_filter_keep = Mock()
+        classify_filter_keep.raise_for_status.return_value = None
+        classify_filter_keep.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "op": "filter",
+                                "undo_steps": 1,
+                                "message": "Filtering to Asia.",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+        node_keep = Mock()
+        node_keep.raise_for_status.return_value = None
+        node_keep.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "decision": "keep",
+                                "message": "Keep this alternate.",
+                                "reason": "Germany fixture kept to prove baseline reuse in tests.",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "K2THINK_API_KEY": "test-key",
+                "K2THINK_MODEL": "MBZUAI-IFM/K2-Think-v2",
+            },
+            clear=False,
+        ):
+            with patch(
+                "httpx.AsyncClient.post",
+                new=AsyncMock(
+                    side_effect=[
+                        classify_filter_remove,
+                        node_remove,
+                        classify_filter_keep,
+                        node_keep,
+                    ]
+                ),
+            ):
+                south_america = await edit_scenario_with_k2(
+                    "Show me only manufacturers in South America",
+                    scenario,
+                )
+                assert south_america.scenario is not None
+                asia = await edit_scenario_with_k2(
+                    "Show me some in Asia",
+                    south_america.scenario,
+                )
+
+        assert asia.scenario is not None
+        self.assertEqual(len(south_america.scenario.manufacturers), 1)
+        self.assertEqual(len(asia.scenario.manufacturers), 2)
+        self.assertEqual(asia.scenario.manufacturers[1].id, "mfr_alt")
 
     async def test_edit_scenario_with_k2_keeps_node_when_k2_eval_fails(self) -> None:
         scenario = make_scenario()

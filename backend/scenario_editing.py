@@ -13,6 +13,7 @@ from .db import (
     append_scenario_revision,
     ensure_scenario_history_baseline,
     get_active_scenario_revision,
+    get_baseline_scenario_revision,
     get_scenario_revision,
 )
 
@@ -637,6 +638,54 @@ def _build_node_decision_messages(
     ]
 
 
+def _extract_json_object_text(raw_content: str) -> str:
+    text = raw_content.strip()
+    if not text:
+        raise ValueError("K2 Think returned an empty response body.")
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+        if not text:
+            raise ValueError("K2 Think returned an empty fenced JSON body.")
+
+    if text.startswith("{"):
+        return text
+
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("K2 Think response did not contain a JSON object.")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    raise ValueError("K2 Think response contained an unterminated JSON object.")
+
+
 async def _call_k2_json(
     *,
     client: httpx.AsyncClient,
@@ -691,7 +740,7 @@ async def _call_k2_json(
             )
 
         try:
-            decoded = json.loads(content)
+            decoded = json.loads(_extract_json_object_text(content))
             return response_model.model_validate(decoded)
         except Exception as exc:  # noqa: BLE001
             parse_error = str(exc)
@@ -851,6 +900,10 @@ async def edit_scenario_with_k2(
 
     baseline_snapshot = _scenario_to_snapshot_json(scenario)
     ensure_scenario_history_baseline(scenario.id, baseline_snapshot)
+    baseline_revision = get_baseline_scenario_revision(scenario.id)
+    if baseline_revision is None:
+        raise ScenarioEditValidationError("No baseline scenario history revision was found.")
+    baseline_scenario = _load_scenario_from_snapshot(baseline_revision["snapshot_json"])
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         intent = await classify_prompt_with_k2(
@@ -859,7 +912,7 @@ async def edit_scenario_with_k2(
             model=model,
             base_url=base_url,
             prompt=prompt,
-            scenario=scenario,
+            scenario=baseline_scenario,
         )
 
         if intent.op == "reject":
@@ -889,17 +942,17 @@ async def edit_scenario_with_k2(
 
         alternate_manufacturers = [
             manufacturer
-            for manufacturer in scenario.manufacturers
+            for manufacturer in baseline_scenario.manufacturers
             if not manufacturer.isCurrent
         ]
         if not alternate_manufacturers:
             return ScenarioEditResponsePayload(
                 message="No alternate manufacturers were available to filter.",
-                scenario=scenario,
+                scenario=baseline_scenario,
                 status="applied",
             )
 
-        component_by_id = {component.id: component for component in scenario.components}
+        component_by_id = {component.id: component for component in baseline_scenario.components}
         keep_ids: set[str] = set()
         evaluation_warnings: list[str] = []
         semaphore = asyncio.Semaphore(6)
@@ -916,7 +969,7 @@ async def edit_scenario_with_k2(
                         model=model,
                         base_url=base_url,
                         prompt=prompt,
-                        scenario=scenario,
+                        scenario=baseline_scenario,
                         component=component,
                         manufacturer=manufacturer,
                     )
@@ -937,7 +990,7 @@ async def edit_scenario_with_k2(
             if should_keep
         )
 
-        filtered_scenario = apply_filtered_scenario(scenario, keep_ids)
+        filtered_scenario = apply_filtered_scenario(baseline_scenario, keep_ids)
         append_scenario_revision(
             scenario_id=scenario.id,
             parent_id=int(active_revision["id"]),

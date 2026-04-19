@@ -231,14 +231,28 @@ def get_scenario_revision(revision_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def get_baseline_scenario_revision(scenario_id: str) -> sqlite3.Row | None:
+    with connect() as conn:
+        return conn.execute(
+            """
+            SELECT id, scenario_id, parent_id, op_type, prompt_text, snapshot_json, created_at, is_active
+            FROM scenario_edit_history
+            WHERE scenario_id = ? AND op_type = 'baseline'
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (scenario_id,),
+        ).fetchone()
+
+
 def ensure_scenario_history_baseline(
     scenario_id: str,
     snapshot_json: str,
     prompt_text: str = "[baseline]",
 ) -> sqlite3.Row:
-    existing_active = get_active_scenario_revision(scenario_id)
-    if existing_active is not None:
-        return existing_active
+    existing_baseline = get_baseline_scenario_revision(scenario_id)
+    if existing_baseline is not None:
+        return existing_baseline
 
     with connect() as conn:
         conn.execute(

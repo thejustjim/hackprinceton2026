@@ -31,7 +31,7 @@ interface ReportProgressState {
 }
 
 function createDefaultPrompt(scenario: SupplyScenario) {
-  return `Trace the cleanest fallback path through ${scenario.title} and explain which manufacturer swap cuts the most emissions without creating a new bottleneck.`
+  return `Show me only factories in Asia`
 }
 
 function getReportProgressState(elapsedMs: number): ReportProgressState {
