@@ -2,6 +2,8 @@
 
 import { startTransition, useMemo, useState } from "react"
 import Link from "next/link"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Download04Icon } from "@hugeicons/core-free-icons"
 
 import { GlobeView } from "@/components/dashboard/globe-view"
 import { GraphView } from "@/components/dashboard/graph-view"
@@ -18,6 +20,10 @@ import {
 
 interface DashboardShellProps {
   error: string | null
+  onDownloadReport?: (payload: {
+    scenario: SupplyScenario
+    selectedManufacturerByComponent: Record<string, string>
+  }) => void
   onFile: (file: File) => void
   onPromptChange: (value: string) => void
   onPromptSubmit: () => void
@@ -28,6 +34,8 @@ interface DashboardShellProps {
   promptPending?: boolean
   promptPlaceholder?: string
   promptValue: string
+  reportError?: string | null
+  reportPending?: boolean
   scenario: SupplyScenario | null
   scenarioSource: "demo" | "search" | null
   showUploadPanel?: boolean
@@ -92,6 +100,7 @@ function createBestEcoManufacturerByComponent(scenario: SupplyScenario) {
 
 export function DashboardShell({
   error,
+  onDownloadReport,
   onFile,
   onPromptChange,
   onPromptSubmit,
@@ -102,6 +111,8 @@ export function DashboardShell({
   promptPending,
   promptPlaceholder,
   promptValue,
+  reportError,
+  reportPending = false,
   scenario,
   scenarioSource,
   showUploadPanel = true,
@@ -115,9 +126,8 @@ export function DashboardShell({
     () => (scenario ? createPinnedManufacturerByComponent(scenario) : {}),
     [scenario]
   )
-  const [pinnedManufacturerOverrides, setPinnedManufacturerOverrides] = useState<
-    Record<string, string>
-  >({})
+  const [pinnedManufacturerOverrides, setPinnedManufacturerOverrides] =
+    useState<Record<string, string>>({})
   const pinnedManufacturerByComponent = useMemo(
     () => ({
       ...basePinnedManufacturerByComponent,
@@ -205,7 +215,9 @@ export function DashboardShell({
                   </p>
                   <p className="mt-0.5 text-foreground/90">
                     {scenario.quantity.toLocaleString()}{" "}
-                    <span className="text-muted-foreground">{scenario.unit}</span>
+                    <span className="text-muted-foreground">
+                      {scenario.unit}
+                    </span>
                   </p>
                 </div>
                 <div className="min-w-0">
@@ -218,8 +230,8 @@ export function DashboardShell({
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {scenario.stats.componentCount} components ·{" "}
-                    {scenario.stats.routeCount} routes · {scenario.stats.siteCount}{" "}
-                    sites
+                    {scenario.stats.routeCount} routes ·{" "}
+                    {scenario.stats.siteCount} sites
                   </p>
                 </div>
               </div>
@@ -241,9 +253,37 @@ export function DashboardShell({
                 Restart onboarding
               </Button>
             ) : null}
+            {scenario && onDownloadReport ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  onDownloadReport({
+                    scenario,
+                    selectedManufacturerByComponent:
+                      pinnedManufacturerByComponent,
+                  })
+                }
+                disabled={reportPending}
+                className="rounded-full border-white/12 bg-white/[0.03] text-white/80 hover:bg-white/[0.06] hover:text-white"
+              >
+                <HugeiconsIcon
+                  icon={Download04Icon}
+                  strokeWidth={2}
+                  data-icon="inline-start"
+                />
+                {reportPending ? "Generating..." : "Download report"}
+              </Button>
+            ) : null}
             {scenario?.updatedAt ? (
               <p className="text-right text-xs text-muted-foreground sm:max-w-xs">
                 {scenario.updatedAt}
+              </p>
+            ) : null}
+            {reportError ? (
+              <p className="text-right text-xs text-red-300/80 sm:max-w-xs">
+                {reportError}
               </p>
             ) : null}
           </div>

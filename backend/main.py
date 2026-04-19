@@ -107,11 +107,23 @@ def _warn_if_search_tools_misconfigured() -> None:
             "[startup] ANTHROPIC_API_KEY is not set — Claude calls via Dedalus may fail.",
             flush=True,
         )
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        print(
+            "[startup] GEMINI_API_KEY is not set — downloadable report generation will fail.",
+            flush=True,
+        )
 
 
 from .agents import run_supply_chain_research
 from .db import audit_search, init_db
 from .ml_scorer import compute_composite_scores, parse_agent_output
+from .report_generation import (
+    ReportGenerationConfigError,
+    ReportGenerationProviderError,
+    ScenarioReportRequestPayload,
+    ScenarioReportResponsePayload,
+    generate_scenario_report_with_gemini,
+)
 from .scenario_editing import (
     ScenarioEditConfigError,
     ScenarioEditProviderError,
@@ -768,3 +780,19 @@ async def edit_scenario_endpoint(
         message=model_response.message,
         scenario=normalized,
     )
+
+
+@app.post("/scenario/report", response_model=ScenarioReportResponsePayload)
+async def generate_scenario_report_endpoint(
+    req: ScenarioReportRequestPayload,
+) -> ScenarioReportResponsePayload:
+    """Generate a downloadable markdown report for the scenario."""
+    try:
+        return await generate_scenario_report_with_gemini(
+            req.scenario,
+            selected_by_component=req.selectedManufacturerByComponent,
+        )
+    except ReportGenerationConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ReportGenerationProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

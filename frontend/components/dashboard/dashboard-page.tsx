@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import type { UploadPanelStatus } from "@/components/dashboard/upload-panel"
-import { editScenario, search } from "@/lib/api"
+import { editScenario, generateScenarioReport, search } from "@/lib/api"
 import { apiResultToScenario } from "@/lib/api-to-scenario"
 import { parseScenarioSearchCsv } from "@/lib/csv-to-search"
 import {
@@ -29,13 +29,25 @@ function createDefaultPrompt(scenario: SupplyScenario) {
   return `Trace the cleanest fallback path through ${scenario.title} and explain which manufacturer swap cuts the most emissions without creating a new bottleneck.`
 }
 
+function downloadTextFile(fileName: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType })
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = fileName
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
   const [scenario, setScenario] = useState<SupplyScenario | null>(() =>
     startsInDemo ? sampleSupplyScenario : null
   )
-  const [scenarioSource, setScenarioSource] = useState<"demo" | "search" | null>(
-    () => (startsInDemo ? "demo" : null)
-  )
+  const [scenarioSource, setScenarioSource] = useState<
+    "demo" | "search" | null
+  >(() => (startsInDemo ? "demo" : null))
   const [status, setStatus] = useState<UploadPanelStatus>(() =>
     isHandoff ? "loading" : "idle"
   )
@@ -46,6 +58,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
   )
   const [promptPending, setPromptPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
+  const [reportPending, setReportPending] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
   const handoffConsumedRef = useRef(false)
 
   const runScenarioCsvText = useCallback(async (text: string) => {
@@ -53,6 +67,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setStatus("loading")
     setError(null)
     setPromptError(null)
+    setReportPending(false)
+    setReportError(null)
     setScenario(null)
     setScenarioSource(null)
 
@@ -90,10 +106,14 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       setScenarioSource("search")
       setPromptValue("")
       setPromptPlaceholder(createDefaultPrompt(nextScenario))
+      setReportPending(false)
+      setReportError(null)
       setStatus("idle")
     } catch (caught) {
       const message =
-        caught instanceof Error ? caught.message : "Unknown error during search."
+        caught instanceof Error
+          ? caught.message
+          : "Unknown error during search."
       setStatus("error")
       setError(message)
     }
@@ -133,6 +153,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
         setStatus("idle")
         setError(null)
         setPromptError(null)
+        setReportPending(false)
+        setReportError(null)
       })
       return
     }
@@ -145,6 +167,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       setStatus("idle")
       setError(null)
       setPromptError(null)
+      setReportPending(false)
+      setReportError(null)
     })
   }, [isHandoff, runScenarioCsvText, startsInDemo])
 
@@ -158,6 +182,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setPromptValue("")
     setPromptPlaceholder(createDefaultPrompt(sampleSupplyScenario))
     setPromptError(null)
+    setReportPending(false)
+    setReportError(null)
   }, [])
 
   const handleReset = useCallback(() => {
@@ -169,6 +195,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     setScenarioSource(null)
     setPromptValue("")
     setPromptError(null)
+    setReportPending(false)
+    setReportError(null)
   }, [])
 
   const handlePromptSubmit = useCallback(async () => {
@@ -203,9 +231,48 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
     }
   }, [promptPending, promptValue, scenario])
 
+  const handleDownloadReport = useCallback(
+    async ({
+      scenario: activeScenario,
+      selectedManufacturerByComponent,
+    }: {
+      scenario: SupplyScenario
+      selectedManufacturerByComponent: Record<string, string>
+    }) => {
+      if (reportPending) {
+        return
+      }
+
+      setReportPending(true)
+      setReportError(null)
+
+      try {
+        const response = await generateScenarioReport({
+          scenario: activeScenario,
+          selectedManufacturerByComponent,
+        })
+        downloadTextFile(
+          response.fileName,
+          response.markdown,
+          response.mimeType
+        )
+      } catch (caught) {
+        setReportError(
+          caught instanceof Error
+            ? caught.message
+            : "Scenario report failed unexpectedly."
+        )
+      } finally {
+        setReportPending(false)
+      }
+    },
+    [reportPending]
+  )
+
   return (
     <DashboardShell
       error={error}
+      onDownloadReport={handleDownloadReport}
       onFile={() => undefined}
       onPromptChange={setPromptValue}
       onPromptSubmit={handlePromptSubmit}
@@ -215,6 +282,8 @@ export function DashboardPage({ isHandoff, startsInDemo }: DashboardPageProps) {
       promptPending={promptPending}
       promptPlaceholder={promptPlaceholder}
       promptValue={promptValue}
+      reportError={reportError}
+      reportPending={reportPending}
       scenario={scenario}
       scenarioSource={scenarioSource}
       showUploadPanel={false}

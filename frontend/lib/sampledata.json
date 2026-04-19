@@ -48,29 +48,6 @@
       "certifications": ["iso14001", "sbt_committed"]
     },
     {
-      "id": "mfr_adhesive_2",
-      "nodeKind": "manufacturer",
-      "name": "H.B. Fuller Company",
-      "component": "Adhesive",
-      "isCurrent": false,
-      "location": {
-        "country": "US",
-        "city": "Saint Paul",
-        "lat": 44.9537,
-        "lng": -93.09
-      },
-      "ecoScore": 78,
-      "gridCarbonScore": 58,
-      "climateRiskScore": 29,
-      "transportEmissionsTco2e": 0.0,
-      "manufacturingEmissionsTco2e": {
-        "q10": 245.4,
-        "q50": 53.4,
-        "q90": 22.1
-      },
-      "certifications": ["iso14001"]
-    },
-    {
       "id": "mfr_adhesive_3",
       "nodeKind": "manufacturer",
       "name": "Artecola Industrias Quimicas Ltda",
@@ -115,29 +92,6 @@
         "q90": 25.8
       },
       "certifications": ["iso14001", "science_based_targets"]
-    },
-    {
-      "id": "mfr_adhesive_5",
-      "nodeKind": "manufacturer",
-      "name": "DELO Industrial Adhesives",
-      "component": "Adhesive",
-      "isCurrent": false,
-      "location": {
-        "country": "DE",
-        "city": "Windach",
-        "lat": 48.0667,
-        "lng": 11.0333
-      },
-      "ecoScore": 64,
-      "gridCarbonScore": 55,
-      "climateRiskScore": 28,
-      "transportEmissionsTco2e": 0.14,
-      "manufacturingEmissionsTco2e": {
-        "q10": 326.5,
-        "q50": 61.4,
-        "q90": 25.8
-      },
-      "certifications": ["iso14001", "emas"]
     },
     {
       "id": "mfr_adhesive_6",
@@ -224,29 +178,6 @@
       "certifications": ["iso14001"]
     },
     {
-      "id": "mfr_plastic_2",
-      "nodeKind": "manufacturer",
-      "name": "LyondellBasell",
-      "component": "Plastic",
-      "isCurrent": false,
-      "location": {
-        "country": "US",
-        "city": "Houston",
-        "lat": 29.7604,
-        "lng": -95.3698
-      },
-      "ecoScore": 85,
-      "gridCarbonScore": 58,
-      "climateRiskScore": 29,
-      "transportEmissionsTco2e": 0.0,
-      "manufacturingEmissionsTco2e": {
-        "q10": 245.4,
-        "q50": 53.4,
-        "q90": 22.1
-      },
-      "certifications": ["cdp_a"]
-    },
-    {
       "id": "mfr_plastic_3",
       "nodeKind": "manufacturer",
       "name": "Braskem",
@@ -268,29 +199,6 @@
         "q90": 2.4
       },
       "certifications": ["cdp_a"]
-    },
-    {
-      "id": "mfr_plastic_4",
-      "nodeKind": "manufacturer",
-      "name": "BASF",
-      "component": "Plastic",
-      "isCurrent": false,
-      "location": {
-        "country": "DE",
-        "city": "Ludwigshafen",
-        "lat": 49.4816,
-        "lng": 8.4464
-      },
-      "ecoScore": 62,
-      "gridCarbonScore": 54,
-      "climateRiskScore": 28,
-      "transportEmissionsTco2e": 0.14,
-      "manufacturingEmissionsTco2e": {
-        "q10": 326.5,
-        "q50": 61.4,
-        "q90": 25.8
-      },
-      "certifications": ["iso14001", "science_based_targets"]
     },
     {
       "id": "mfr_plastic_5",
@@ -444,29 +352,6 @@
         "q90": 21.3
       },
       "certifications": ["iso14001", "cdp_a-", "science_based_targets"]
-    },
-    {
-      "id": "mfr_cardboard_4",
-      "nodeKind": "manufacturer",
-      "name": "Klabin",
-      "component": "Cardboard",
-      "isCurrent": false,
-      "location": {
-        "country": "BR",
-        "city": "São Paulo",
-        "lat": -23.5558,
-        "lng": -46.6396
-      },
-      "ecoScore": 83,
-      "gridCarbonScore": 100,
-      "climateRiskScore": 49,
-      "transportEmissionsTco2e": 0.18,
-      "manufacturingEmissionsTco2e": {
-        "q10": 58.1,
-        "q50": 10.9,
-        "q90": 4.0
-      },
-      "certifications": ["iso14001", "cdp_a", "science_based_targets"]
     },
     {
       "id": "mfr_cardboard_5",
