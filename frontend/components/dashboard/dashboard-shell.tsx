@@ -10,7 +10,6 @@ import {
   type UploadPanelStatus,
 } from "@/components/dashboard/upload-panel"
 import { GreenChainLogo } from "@/components/green-chain-logo"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   type SupplyScenario,
@@ -169,8 +168,8 @@ export function DashboardShell({
   return (
     <main className="dashboard-shell h-svh">
       <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:px-5">
-        <header className="flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
+        <header className="flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:gap-5">
             <Link
               href="/"
               className="inline-flex shrink-0 items-center transition-opacity hover:opacity-90"
@@ -180,25 +179,57 @@ export function DashboardShell({
                 className="h-7 w-auto sm:h-8 md:h-9"
               />
             </Link>
-            <div className="flex min-w-0 items-center gap-2">
-              <p className="min-w-0 truncate text-base font-medium text-white/85">
-                {scenario ? scenario.title : "Dashboard"}
+            {scenario ? (
+              <div className="grid min-w-0 flex-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,1.1fr)]">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Scenario ID
+                  </p>
+                  <p
+                    className="mt-0.5 truncate font-mono text-xs text-foreground/90"
+                    title={scenario.id}
+                  >
+                    {scenario.id}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {scenarioSource === "demo"
+                      ? "Offline snapshot"
+                      : scenarioSource === "search"
+                        ? "Search-backed run"
+                        : null}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Plan volume
+                  </p>
+                  <p className="mt-0.5 text-foreground/90">
+                    {scenario.quantity.toLocaleString()}{" "}
+                    <span className="text-muted-foreground">{scenario.unit}</span>
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                    Ship-to
+                  </p>
+                  <p className="mt-0.5 truncate text-foreground/90">
+                    {scenario.destination.location.city},{" "}
+                    {scenario.destination.location.country}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {scenario.stats.componentCount} components ·{" "}
+                    {scenario.stats.routeCount} routes · {scenario.stats.siteCount}{" "}
+                    sites
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Load a scenario to open the operations view.
               </p>
-              {scenarioSource === "demo" ? (
-                <Badge variant="outline" className="shrink-0">
-                  Demo
-                </Badge>
-              ) : scenarioSource === "search" ? (
-                <Badge variant="outline" className="shrink-0">
-                  Live search
-                </Badge>
-              ) : null}
-            </div>
-            <p className="text-sm text-muted-foreground sm:max-w-md sm:border-l sm:border-border/70 sm:pl-5">
-              Interactive supply chain graph · geographic intelligence
-            </p>
+            )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
             {onRestartOnboarding ? (
               <Button
                 type="button"
@@ -210,10 +241,10 @@ export function DashboardShell({
                 Restart onboarding
               </Button>
             ) : null}
-            {scenario && scenario.updatedAt && scenario.updatedAt !== "Sample dataset" ? (
-              <div className="text-sm text-muted-foreground">
+            {scenario?.updatedAt ? (
+              <p className="text-right text-xs text-muted-foreground sm:max-w-xs">
                 {scenario.updatedAt}
-              </div>
+              </p>
             ) : null}
           </div>
         </header>

@@ -56,8 +56,8 @@
       "location": {
         "country": "US",
         "city": "Saint Paul",
-        "lat": 0.0,
-        "lng": 0.0
+        "lat": 44.9537,
+        "lng": -93.09
       },
       "ecoScore": 78,
       "gridCarbonScore": 58,
@@ -148,8 +148,8 @@
       "location": {
         "country": "TW",
         "city": "Taoyuan",
-        "lat": 0.0,
-        "lng": 0.0
+        "lat": 24.9936,
+        "lng": 121.301
       },
       "ecoScore": 36,
       "gridCarbonScore": 34,
@@ -232,8 +232,8 @@
       "location": {
         "country": "US",
         "city": "Houston",
-        "lat": 0.0,
-        "lng": 0.0
+        "lat": 29.7604,
+        "lng": -95.3698
       },
       "ecoScore": 85,
       "gridCarbonScore": 58,
@@ -278,8 +278,8 @@
       "location": {
         "country": "DE",
         "city": "Ludwigshafen",
-        "lat": 0.0,
-        "lng": 0.0
+        "lat": 49.4816,
+        "lng": 8.4464
       },
       "ecoScore": 62,
       "gridCarbonScore": 54,
@@ -301,8 +301,8 @@
       "location": {
         "country": "DE",
         "city": "Leverkusen",
-        "lat": 0.0,
-        "lng": 0.0
+        "lat": 51.0303,
+        "lng": 6.9843
       },
       "ecoScore": 62,
       "gridCarbonScore": 54,

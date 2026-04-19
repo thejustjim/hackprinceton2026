@@ -299,36 +299,21 @@ export function GlobeView({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-white/42">
-            <HugeiconsIcon icon={Route03Icon} strokeWidth={2} />
-            Select a route or site to inspect the detail drawer in Supply Chain
-            Graph.
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="hidden rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-medium text-white/74 sm:inline-flex">
-              Route color = eco score
-            </span>
-            <span className="dashboard-chip-muted hidden sm:inline-flex">
-              {scenario.stats.currentRouteCount} current routes
-            </span>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 text-[11px] leading-snug text-white/38">
+          <HugeiconsIcon
+            icon={Route03Icon}
+            strokeWidth={1.7}
+            className="mt-0.5 h-3 w-3 shrink-0 text-white/32"
+          />
+          <span>
+            Eco-colored arcs · {scenario.stats.currentRouteCount} default
+            {scenario.stats.currentRouteCount === 1 ? "" : "s"} · Graph for
+            detail · tap a manufacturer to reroute.
+          </span>
+        </p>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="dashboard-section-label">Route Selector</p>
-              <p className="mt-1 text-[11px] text-white/34">
-                Only the active selected route for each component is drawn on
-                the globe. Arc captions stay component-first and follow that
-                active route. Current = default active route. Alternate =
-                modeled fallback. Click a manufacturer to switch the visible
-                route for its component.
-              </p>
-            </div>
-            <span className="dashboard-chip-muted">Details in graph</span>
-          </div>
+          <p className="dashboard-section-label">Routes</p>
 
           <div className="grid gap-2.5">
             {scenario.components.map((component) => {
