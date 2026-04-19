@@ -57,6 +57,8 @@ _RUNNING_PHASES = {"running"}
 _STARTING_PHASES = {"accepted", "starting", "waking", "provisioning", "pending"}
 _FAILED_PHASES = {"failed"}
 _SLEEPING_PHASES = {"sleeping", "stopped"}
+# Phases where the machine is gone and we must re-create rather than wake.
+_GONE_PHASES = {"destroyed", "destroying", "deleted", "deleting"}
 _TERMINAL_EXEC_STATES = {"succeeded", "failed", "cancelled", "canceled"}
 
 
@@ -193,6 +195,7 @@ def ensure_machine_running(machine_id: Optional[str] = None) -> str:
     # Don't retry-kick faster than this — the Dedalus controlplane needs time
     # to reconcile, and pinging wake() every 0.5s is pointless.
     _kick_cooldown = 5.0
+    recreated = False
 
     while time.monotonic() < deadline:
         dm, etag = _retrieve_with_etag(client, mid)
@@ -201,6 +204,20 @@ def ensure_machine_running(machine_id: Optional[str] = None) -> str:
 
         if phase in _RUNNING_PHASES:
             return mid
+
+        if phase in _GONE_PHASES:
+            # Cached machine was destroyed (idle cleanup, manual delete, etc.).
+            # Recreate once — subsequent destructions become hard failures so
+            # we don't loop forever against a broken account.
+            if recreated or machine_id is not None:
+                raise RuntimeError(
+                    f"machine {mid} is in terminal '{phase}' state"
+                )
+            with connect() as conn:
+                conn.execute("DELETE FROM dcs_meta WHERE key = 'machine_id'")
+            mid = get_or_create_machine_id()
+            recreated = True
+            continue
 
         if phase in _FAILED_PHASES:
             retryable = bool(getattr(status, "retryable", False))
