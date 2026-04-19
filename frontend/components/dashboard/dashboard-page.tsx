@@ -31,7 +31,7 @@ interface ReportProgressState {
 }
 
 function createDefaultPrompt(scenario: SupplyScenario) {
-  return `Show me only factories in Asia`
+  return `Request goes here`
 }
 
 function getReportProgressState(elapsedMs: number): ReportProgressState {
