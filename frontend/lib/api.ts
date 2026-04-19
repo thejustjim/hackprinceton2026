@@ -111,6 +111,19 @@ export interface ScenarioEditResponse {
   status: "applied" | "rejected"
 }
 
+export interface ScenarioReportRequest {
+  scenario: SupplyScenario
+  selectedManufacturerByComponent?: Record<string, string>
+}
+
+export interface ScenarioReportResponse {
+  fileName: string
+  generatedAt: string
+  markdown: string
+  mimeType: string
+  model: string
+}
+
 export const API_BASE_URL = "/api"
 
 async function readErrorDetail(response: Response) {
@@ -162,6 +175,23 @@ export async function editScenario(
   if (!response.ok) {
     const detail = await readErrorDetail(response)
     throw new Error(`Scenario edit failed (${response.status}): ${detail}`)
+  }
+
+  return response.json()
+}
+
+export async function generateScenarioReport(
+  request: ScenarioReportRequest
+): Promise<ScenarioReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/scenario/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    const detail = await readErrorDetail(response)
+    throw new Error(`Scenario report failed (${response.status}): ${detail}`)
   }
 
   return response.json()
