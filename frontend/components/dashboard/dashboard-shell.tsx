@@ -649,7 +649,25 @@ export function DashboardShell({
                 >
                   <div className="h-full min-h-0 pr-2">{graphPanel}</div>
                 </ResizablePanel>
-                <ResizableHandle className="mx-0.5 w-3 rounded-full bg-transparent after:w-6" />
+                <ResizableHandle className="mx-0.5 w-3 rounded-full bg-transparent after:w-6">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none flex w-full items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[height,background-color,box-shadow] duration-150",
+                      isDashboardResizing ? "h-24 bg-white/[0.08]" : "h-16"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "block w-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[height,background-color,box-shadow,transform] duration-150",
+                        isDashboardResizing ? "h-24 bg-white/[0.3]" : "h-16"
+                      )}
+                      style={{
+                        transform: `translateX(${dashboardHandleLagOffset}px)`,
+                      }}
+                    />
+                  </span>
+                </ResizableHandle>
                 <ResizablePanel
                   id={DASHBOARD_GLOBE_PANEL_ID}
                   className="min-h-0"
@@ -658,34 +676,6 @@ export function DashboardShell({
                   <div className="h-full min-h-0 pl-2">{globePanel}</div>
                 </ResizablePanel>
               </ResizablePanelGroup>
-              {dashboardHandleTargetPosition ? (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute z-20 transition-opacity duration-150"
-                  style={{
-                    left: dashboardHandleTargetPosition.x - 6,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                  }}
-                >
-                  <span
-                    className={cn(
-                      "flex w-3 items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[height,background-color,box-shadow] duration-200",
-                      isDashboardResizing ? "h-24 bg-white/[0.08]" : "h-16"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "block w-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[height,background-color,box-shadow] duration-200",
-                        isDashboardResizing ? "h-24 bg-white/[0.3]" : "h-16"
-                      )}
-                      style={{
-                        transform: `translateX(${dashboardHandleLagOffset}px)`,
-                      }}
-                    />
-                  </span>
-                </div>
-              ) : null}
             </div>
           ) : (
             <section className="grid min-h-0 flex-1 grid-rows-2 gap-4">

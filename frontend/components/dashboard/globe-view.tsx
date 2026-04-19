@@ -732,7 +732,25 @@ export function GlobeView({
                     />
                   </div>
                 </ResizablePanel>
-                <ResizableHandle className="my-1 h-3 rounded-full bg-transparent after:h-6 aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:after:h-6" />
+                <ResizableHandle className="my-1 h-3 rounded-full bg-transparent after:h-6 aria-[orientation=horizontal]:h-3 aria-[orientation=horizontal]:after:h-6">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none flex h-full items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[width,background-color,box-shadow] duration-150",
+                      isGlobeSplitResizing ? "w-24 bg-white/[0.08]" : "w-16"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "block h-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[width,background-color,box-shadow,transform] duration-150",
+                        isGlobeSplitResizing ? "w-24 bg-white/[0.3]" : "w-16"
+                      )}
+                      style={{
+                        transform: `translateY(${globeHandleLagOffset}px)`,
+                      }}
+                    />
+                  </span>
+                </ResizableHandle>
                 <ResizablePanel
                   id={GLOBE_ROUTES_PANEL_ID}
                   className="min-h-0"
@@ -759,34 +777,6 @@ export function GlobeView({
                   </div>
                 </ResizablePanel>
               </ResizablePanelGroup>
-              {globeHandleTargetPosition ? (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute z-20 transition-opacity duration-150"
-                  style={{
-                    left: "50%",
-                    top: globeHandleTargetPosition.y - 6,
-                    transform: "translateX(-50%)",
-                  }}
-                >
-                  <span
-                    className={cn(
-                      "flex h-3 items-center justify-center overflow-hidden rounded-full bg-white/[0.04] shadow-[0_0_14px_rgba(255,255,255,0.05)] transition-[width,background-color,box-shadow] duration-200",
-                      isGlobeSplitResizing ? "w-24 bg-white/[0.08]" : "w-16"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "block h-[3px] rounded-full bg-white/[0.16] shadow-[0_0_10px_rgba(255,255,255,0.08)] transition-[width,background-color,box-shadow] duration-200",
-                        isGlobeSplitResizing ? "w-24 bg-white/[0.3]" : "w-16"
-                      )}
-                      style={{
-                        transform: `translateY(${globeHandleLagOffset}px)`,
-                      }}
-                    />
-                  </span>
-                </div>
-              ) : null}
             </div>
           </div>
         ) : (
