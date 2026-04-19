@@ -2051,7 +2051,7 @@ export function SupplyChainGraph({
       </div>
 
       {/* Zoom controls */}
-      <div className="dashboard-control-surface absolute bottom-28 left-5 z-20 flex flex-col gap-1 rounded-xl p-1.5 shadow-2xl sm:bottom-32">
+      <div className="dashboard-control-surface absolute bottom-24 left-5 z-20 flex flex-col gap-1 rounded-xl p-1.5 shadow-2xl sm:bottom-28">
         <button
           onClick={() => handleZoom("in")}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white/80"
@@ -2086,7 +2086,7 @@ export function SupplyChainGraph({
       </div>
 
       {/* Zoom level badge */}
-      <div className="dashboard-control-surface absolute bottom-28 left-16 z-20 rounded-lg px-2 py-1 sm:bottom-32">
+      <div className="dashboard-control-surface absolute bottom-24 left-16 z-20 rounded-lg px-2 py-1 sm:bottom-28">
         <span className="font-mono text-[10px] text-white/30">
           {Math.round(transform.scale * 100)}%
         </span>
