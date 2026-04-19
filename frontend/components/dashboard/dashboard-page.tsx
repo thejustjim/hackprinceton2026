@@ -38,7 +38,7 @@ interface ScenarioEditHistoryState {
 const MAX_SCENARIO_EDIT_HISTORY = 50
 
 function createDefaultPrompt() {
-  return `Show me only factories in Asia`
+  return `Request goes here`
 }
 
 function getReportProgressState(elapsedMs: number): ReportProgressState {
