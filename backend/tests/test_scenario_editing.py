@@ -6,8 +6,11 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 from backend.scenario_editing import (
+    EditableScenarioPayload,
     ScenarioEditConfigError,
     SupplyScenarioPayload,
+    _build_edit_messages,
+    _to_editable_scenario,
     edit_scenario_with_k2,
     normalize_edited_scenario,
     _get_k2think_settings,
@@ -292,7 +295,7 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_edit_scenario_with_k2_parses_model_output(self) -> None:
         scenario = make_scenario()
-        candidate = scenario.model_copy(deep=True)
+        candidate = _to_editable_scenario(scenario)
         candidate.title = "Edited Widget"
         response_payload = {
             "choices": [
@@ -331,9 +334,20 @@ class ScenarioEditingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(result.scenario)
         self.assertEqual(result.scenario.title, "Edited Widget")
 
+    def test_build_edit_messages_uses_compact_editable_scenario(self) -> None:
+        scenario = make_scenario()
+        messages = _build_edit_messages("Only keep Asian manufacturers", scenario)
+        self.assertEqual(len(messages), 2)
+        payload = messages[1]["content"].split("Current scenario JSON:\n", 1)[1]
+        parsed = json.loads(payload)
+        self.assertNotIn("graph", parsed)
+        self.assertNotIn("routes", parsed)
+        self.assertNotIn("stats", parsed)
+        self.assertNotIn("updatedAt", parsed)
+
     async def test_edit_scenario_with_k2_retries_invalid_json(self) -> None:
         scenario = make_scenario()
-        candidate = scenario.model_copy(deep=True)
+        candidate = _to_editable_scenario(scenario)
         candidate.manufacturers = [candidate.manufacturers[1]]
         candidate.manufacturers[0].isCurrent = True
         candidate.components[0].manufacturerIds = ["mfr_alt"]
