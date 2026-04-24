@@ -6,7 +6,6 @@ import {
   useEffectEvent,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react"
 import Image from "next/image"
 import Link from "next/link"
@@ -14,6 +13,11 @@ import { useRouter } from "next/navigation"
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
 import { DashboardLaunchOverlay } from "@/components/launch/dashboard-launch-overlay"
+import { useInView } from "@/hooks/use-in-view"
+import {
+  usePrefersReducedMotion,
+  usePrefersReducedMotionSnapshot,
+} from "@/hooks/use-prefers-reduced-motion"
 import { cn } from "@/lib/utils"
 
 const IMG = {
@@ -102,55 +106,6 @@ const FEATURES: Feature[] = [
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
-
-function useInView(threshold = 0.18) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [inView, setInView] = useState(false)
-
-  useEffect(() => {
-    const element = ref.current
-    if (!element) return
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setInView(true)
-      },
-      { threshold }
-    )
-
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [threshold])
-
-  return { ref, inView }
-}
-
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const update = () => setPrefersReducedMotion(mediaQuery.matches)
-
-    update()
-    mediaQuery.addEventListener("change", update)
-    return () => mediaQuery.removeEventListener("change", update)
-  }, [])
-
-  return prefersReducedMotion
-}
-
-function usePrefersReducedMotionSnapshot() {
-  return useSyncExternalStore(
-    (onStoreChange) => {
-      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
-      mediaQuery.addEventListener("change", onStoreChange)
-      return () => mediaQuery.removeEventListener("change", onStoreChange)
-    },
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    () => false
-  )
-}
 
 function DashboardLaunchButton({
   children,
