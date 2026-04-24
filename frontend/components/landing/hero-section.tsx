@@ -64,12 +64,32 @@ export function HeroSection({
   const prefersReducedMotion = usePrefersReducedMotion()
   const [mounted, setMounted] = useState(false)
   const [videoReady, setVideoReady] = useState(false)
+  const [navFade, setNavFade] = useState(1)
 
   useEffect(() => {
     if (!introReady) return
     const timeout = window.setTimeout(() => setMounted(true), 120)
     return () => window.clearTimeout(timeout)
   }, [introReady])
+
+  useEffect(() => {
+    let frame = 0
+    const update = () => {
+      const y = window.scrollY
+      const threshold = window.innerHeight * 0.6
+      setNavFade(y > threshold ? 0 : 1)
+    }
+    const onScroll = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("scroll", onScroll)
+    }
+  }, [])
 
   const syncVideo = useEffectEvent(() => {
     const video = videoRef.current
@@ -179,7 +199,10 @@ export function HeroSection({
       <div className="landing-grid absolute inset-0 -z-10 opacity-55" />
 
       <div className="relative mx-auto flex min-h-[100svh] w-full max-w-screen-2xl flex-col px-6 pt-6 pb-8 md:px-10">
-        <header className="flex items-center justify-between gap-4">
+        <header
+          className="flex items-center justify-between gap-4"
+          style={{ opacity: navFade, transition: "opacity 320ms ease" }}
+        >
           <Link
             href="/"
             className="inline-flex shrink-0 items-center transition-opacity hover:opacity-90"

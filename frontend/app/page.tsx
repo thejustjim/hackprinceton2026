@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 
+import { ChromeNav } from "@/components/landing/chrome-nav"
 import { CTAFooter } from "@/components/landing/cta-footer"
 import { FeaturesSection } from "@/components/landing/features-section"
 import { HeroSection } from "@/components/landing/hero-section"
@@ -71,6 +72,10 @@ export default function LandingPage() {
         key={launchOverlayRunId}
         onComplete={handleLaunchOverlayComplete}
         reducedMotion={prefersReducedMotion}
+      />
+      <ChromeNav
+        isLaunching={isLaunching}
+        onLaunchDashboard={handleLaunchDashboard}
       />
       <HeroSection
         introReady={introReady}
