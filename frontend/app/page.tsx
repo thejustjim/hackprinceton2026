@@ -9,7 +9,7 @@ import { FeaturesSection } from "@/components/landing/features-section"
 import { HeroSection } from "@/components/landing/hero-section"
 import {
   IntroSequence,
-  hasSeenIntro,
+  useIntroSeen,
 } from "@/components/landing/intro-sequence"
 import { ProductPreviewSection } from "@/components/landing/product-preview-section"
 import { DashboardLaunchOverlay } from "@/components/launch/dashboard-launch-overlay"
@@ -21,8 +21,10 @@ export default function LandingPage() {
   const prefersReducedMotion = usePrefersReducedMotionSnapshot()
   const [isLaunching, setIsLaunching] = useState(false)
   const [launchOverlayRunId, setLaunchOverlayRunId] = useState(0)
-  const [introReady, setIntroReady] = useState(false)
-  const [showIntro, setShowIntro] = useState(false)
+  const introSeen = useIntroSeen()
+  const [introDismissed, setIntroDismissed] = useState(false)
+  const introReady = introSeen || introDismissed
+  const showIntro = !introReady
 
   useLenis({ disabled: prefersReducedMotion || isLaunching || !introReady })
 
@@ -30,17 +32,8 @@ export default function LandingPage() {
     router.prefetch("/launch")
   }, [router])
 
-  useEffect(() => {
-    if (hasSeenIntro()) {
-      setIntroReady(true)
-      return
-    }
-    setShowIntro(true)
-  }, [])
-
   const handleIntroComplete = useCallback(() => {
-    setShowIntro(false)
-    setIntroReady(true)
+    setIntroDismissed(true)
   }, [])
 
   useEffect(() => {

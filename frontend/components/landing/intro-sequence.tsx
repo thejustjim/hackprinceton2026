@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react"
 
 import { GreenChainLogo } from "@/components/green-chain-logo"
@@ -258,4 +259,12 @@ export function hasSeenIntro(): boolean {
   } catch {
     return false
   }
+}
+
+export function useIntroSeen(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => hasSeenIntro(),
+    () => false
+  )
 }

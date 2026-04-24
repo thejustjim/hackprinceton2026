@@ -87,7 +87,10 @@ function PreviewStage({ progress }: { progress: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const progressRef = useRef(progress)
-  progressRef.current = progress
+
+  useEffect(() => {
+    progressRef.current = progress
+  }, [progress])
 
   useEffect(() => {
     const canvas = canvasRef.current
