@@ -7,6 +7,7 @@ import { CTAFooter } from "@/components/landing/cta-footer"
 import { FeaturesSection } from "@/components/landing/features-section"
 import { HeroSection } from "@/components/landing/hero-section"
 import { DashboardLaunchOverlay } from "@/components/launch/dashboard-launch-overlay"
+import { useLenis } from "@/hooks/use-lenis"
 import { usePrefersReducedMotionSnapshot } from "@/hooks/use-prefers-reduced-motion"
 
 export default function LandingPage() {
@@ -14,6 +15,8 @@ export default function LandingPage() {
   const prefersReducedMotion = usePrefersReducedMotionSnapshot()
   const [isLaunching, setIsLaunching] = useState(false)
   const [launchOverlayRunId, setLaunchOverlayRunId] = useState(0)
+
+  useLenis({ disabled: prefersReducedMotion || isLaunching })
 
   useEffect(() => {
     router.prefetch("/launch")
