@@ -10,6 +10,7 @@ import {
   IntroSequence,
   hasSeenIntro,
 } from "@/components/landing/intro-sequence"
+import { ProductPreviewSection } from "@/components/landing/product-preview-section"
 import { DashboardLaunchOverlay } from "@/components/launch/dashboard-launch-overlay"
 import { useLenis } from "@/hooks/use-lenis"
 import { usePrefersReducedMotionSnapshot } from "@/hooks/use-prefers-reduced-motion"
@@ -76,6 +77,7 @@ export default function LandingPage() {
         isLaunching={isLaunching}
         onLaunchDashboard={handleLaunchDashboard}
       />
+      <ProductPreviewSection />
       <FeaturesSection
         isLaunching={isLaunching}
         onLaunchDashboard={handleLaunchDashboard}
